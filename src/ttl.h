@@ -2,6 +2,7 @@
 #if !defined INCLUDED_ttl_h_
 #define INCLUDED_ttl_h_
 #include <stddef.h>
+#include <stdint.h>
 
 typedef struct {
 	const char *str;
@@ -36,15 +37,15 @@ typedef struct {
 } ttl_lit_t;
 
 typedef struct {
-	ttl_str_t val;
-} ttl_blk_t;
+	uint64_t h[2U];
+} ttl_bla_t;
 
 typedef struct {
 	ttl_typ_t typ;
 	union {
 		ttl_iri_t iri;
 		ttl_lit_t lit;
-		ttl_blk_t blk;
+		ttl_bla_t bla;
 		ttl_iri_t dir;
 	};
 } ttl_term_t;

@@ -15,6 +15,7 @@
  *       S  + {   -> G
  *       P  + IRI -> O
  *       P  + LIT -> O
+ *       P  + [   -> push + BS
  *       G  + }   -> 0
  *       G  + IRI -> GS
  *       G  + DIR -> G
@@ -28,6 +29,10 @@
  *       GO + ,   -> GP
  *       GO + ;   -> GS
  *       GO + }   -> 0
+ *       BS + IRI -> BP
+ *       BP + IRI -> BO
+ *       BP + LIT -> BO
+ *       BP + ]   -> pop
  *       Q  + .   -> 0 */
 typedef enum {
 	STATE_0,
@@ -39,6 +44,9 @@ typedef enum {
 	STATE_GS,
 	STATE_GP,
 	STATE_GO,
+	STATE_BS,
+	STATE_BP,
+	STATE_BO,
 } state_t;
 
 typedef enum {
@@ -47,8 +55,14 @@ typedef enum {
 	TRANS_DIR,
 	TRANS_IRI,
 	TRANS_LIT,
+	/* { */
 	TRANS_BRO,
+	/* } */
 	TRANS_BRC,
+	/* [ */
+	TRANS_SQO,
+	/* ] */
+	TRANS_SQC,
 	TRANS_DOT,
 	TRANS_COM,
 	TRANS_SEM,
@@ -61,14 +75,23 @@ typedef struct {
 } buf_t;
 
 struct _parser_s {
+	/* public view on things, must be first member */
 	ttl_parser_t public;
-	state_t state;
 	/* parser buffer */
 	buf_t p;
 	/* expander buffer */
 	buf_t x;
-	/* statement, room for a quad */
-	ttl_term_t stmt[4U];
+	/* blank node counter */
+	size_t b;
+	/* state stack */
+	size_t S;
+	size_t Z;
+	struct {
+		/* current state */
+		state_t state;
+		/* statement, room for a quad */
+		ttl_term_t stmt[4U];
+	} *s;
 };
 
 static inline __attribute__((pure, const)) size_t
@@ -294,32 +317,6 @@ _parse_lit(ttl_lit_t *tt, const char *bp, const char *const ep)
 }
 
 static const char*
-parse_blank(const char *bp, const char *const ep)
-{
-	const char *const sp = bp;
-
-	if (UNLIKELY(*bp++ != '[')) {
-		/* not a blank */
-		return NULL;
-	}
-	while (bp < ep && *bp++ != ']');
-	return bp < ep ? bp : sp;
-}
-
-static const char*
-parse_collection(const char *bp, const char *const ep)
-{
-	const char *const sp = bp;
-
-	if (UNLIKELY(*bp++ != '(')) {
-		/* not a blank */
-		return NULL;
-	}
-	while (bp < ep && *bp++ != ')');
-	return bp < ep ? bp : sp;
-}
-
-static const char*
 _parse_dir(ttl_iri_t *t, const char *bp, const char *const ep)
 {
 	static const char prfx[] = "@prefix";
@@ -449,22 +446,15 @@ parse_trans(ttl_term_t *tt, const char **tp, const char *bp, const char *const e
 		break;
 	case '[':
 		/* blank */
-		if (UNLIKELY((bp = parse_blank(sp, ep)) == NULL)) {
-			return TRANS_ERR;
-		} else if (UNLIKELY(bp == sp || bp >= ep)) {
-			goto rollback;
-		}
+		r = TRANS_SQO;
+		bp++;
+		break;
 	case ']':
-		/* unsupported at the moment */
-		r = TRANS_ERR;
+		r = TRANS_SQC;
+		bp++;
 		break;
 	case '(':
 		/* collection */
-		if (UNLIKELY((bp = parse_collection(sp, ep)) == NULL)) {
-			return TRANS_ERR;
-		} else if (UNLIKELY(bp == sp || bp >= ep)) {
-			goto rollback;
-		}
 	case ')':
 		/* unsupported at the moment */
 		r = TRANS_ERR;
@@ -606,18 +596,18 @@ static size_t
 _sbrkmv(struct _parser_s *pp)
 {
 /* move the statement into expander space */
-	const state_t base = pp->state >= STATE_G ? STATE_G : STATE_0;
+	const state_t base = pp->s[pp->S].state >= STATE_G ? STATE_G : STATE_0;
 	size_t tot = 0U;
 
-	for (size_t i = 0; i < pp->state - base; i++) {
-		tot += termlen(pp->stmt[i]);
+	for (size_t i = 0; i < pp->s[pp->S].state - base; i++) {
+		tot += termlen(pp->s[pp->S].stmt[i]);
 	}
 	if (UNLIKELY(pp->x.n + tot >= pp->x.z)) {
 		while ((pp->x.z *= 2U) < pp->x.n + tot);
 		pp->x.b = realloc(pp->x.b, pp->x.z);
 	}
-	for (size_t i = tot = 0; i < pp->state - base; i++) {
-		tot += termcpy(pp->x.b + tot, &pp->stmt[i]);
+	for (size_t i = tot = 0; i < pp->s[pp->S].state - base; i++) {
+		tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[i]);
 	}
 	return tot;
 }
@@ -655,8 +645,11 @@ ttl_make_parser(void)
 	r->p.b = malloc(r->p.z = 4096U);
 	r->x.b = malloc(r->x.z = 4096U);
 	r->p.n = r->x.n = 0U;
-	r->state = STATE_0;
-	r->stmt[TTL_GRPH] = (ttl_term_t){};
+	r->b = 1U;
+	r->S = 0U;
+	r->s = malloc((r->Z = 4U) * sizeof(*r->s));
+	r->s[r->S].state = STATE_0;
+	r->s[r->S].stmt[TTL_GRPH] = (ttl_term_t){};
 	return &r->public;
 }
 
@@ -664,6 +657,8 @@ void
 ttl_free_parser(ttl_parser_t *p)
 {
 	struct _parser_s *pp = (void*)p;
+
+	free(pp->s);
 	free(pp->p.b);
 	free(pp->x.b);
 	free(p);
@@ -716,7 +711,7 @@ more:
 		}
 		return 0;
 	case TRANS_DIR:
-		switch (pp->state) {
+		switch (pp->s[pp->S].state) {
 		case STATE_0:
 			/* 0 + DIR -> 0 */
 			break;
@@ -731,7 +726,8 @@ more:
 		}
 		break;
 	case TRANS_IRI:
-		switch (pp->state) {
+		switch (pp->s[pp->S].state) {
+			state_t b;
 		case STATE_0:
 			/* 0 + IRI -> S */
 		case STATE_S:
@@ -740,94 +736,153 @@ more:
 			/* P + IRI -> O */
 		case STATE_O:
 			/* O + IRI -> Q */
-			pp->stmt[pp->state++] = tt;
-			break;
+			b = STATE_0;
+			goto bang_iri;
 		case STATE_G:
 			/* G + IRI -> GS */
 		case STATE_GS:
 			/* GS + IRI -> GP */
 		case STATE_GP:
 			/* GP + IRI -> GO */
-			pp->stmt[pp->state++ - STATE_G] = tt;
+			b = STATE_G;
+			goto bang_iri;
+		case STATE_BS:
+			/* BS + IRI -> BP */
+		case STATE_BP:
+			/* BP + IRI -> BO */
+			b = STATE_BS;
+			b--;
+			goto bang_iri;
+		bang_iri:
+			pp->s[pp->S].stmt[pp->s[pp->S].state++ - b] = tt;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_LIT:
-		switch (pp->state) {
+		switch (pp->s[pp->S].state) {
 		case STATE_P:
 			/* P + LIT -> O */
-			pp->stmt[pp->state++] = tt;
-			break;
 		case STATE_GP:
 			/* GP + LIT -> GO */
-			pp->stmt[pp->state++ - STATE_G] = tt;
+		case STATE_BP:
+			/* BP + LIT -> BO */
+			pp->s[pp->S].stmt[TTL_OBJ] = tt;
+			pp->s[pp->S].state++;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_BRO:
-		switch (pp->state) {
+		switch (pp->s[pp->S].state) {
 		case STATE_S:
 			/* S + { -> G */
-			pp->stmt[TTL_GRPH] = pp->stmt[TTL_SUBJ];
-			pp->state = STATE_G;
+			pp->s[pp->S].stmt[TTL_GRPH] =
+				pp->s[pp->S].stmt[TTL_SUBJ];
+			pp->s[pp->S].state = STATE_G;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_BRC:
-		switch (pp->state) {
+		switch (pp->s[pp->S].state) {
 		case STATE_G:
 			/* G + } -> 0 */
 		case STATE_GO:
 			/* GO + } -> 0 */
-			pp->stmt[TTL_GRPH] = (ttl_term_t){};
-			pp->state = STATE_0;
+			pp->s[pp->S].stmt[TTL_GRPH] = (ttl_term_t){};
+			pp->s[pp->S].state = STATE_0;
+			break;
+		default:
+			return -1;
+		}
+		break;
+	case TRANS_SQO:
+		switch (pp->s[pp->S].state) {
+		case STATE_P:
+			/* P + [ -> BS */
+		case STATE_GP:
+			/* GP + [ -> BS */
+		case STATE_BP:
+			/* BP + [ -> BS */
+			pp->s[pp->S].stmt[TTL_OBJ] =
+				(ttl_term_t){TTL_TYP_BLA, .bla = {{pp->b++}}};
+			pp->s[pp->S].state++;
+			/* push */
+			if (UNLIKELY(++pp->S >= pp->Z)) {
+				pp->Z *= 2U;
+				pp->s = realloc(pp->s, pp->Z * sizeof(*pp->s));
+			}
+			pp->s[pp->S].stmt[TTL_SUBJ] =
+				pp->s[pp->S - 1U].stmt[TTL_OBJ];
+			pp->s[pp->S].state = STATE_BS;
+			break;
+		default:
+			return -1;
+		}
+		break;
+	case TRANS_SQC:
+		switch (pp->s[pp->S].state) {
+		case STATE_BO:
+			/* BO + ] -> pop */
+
+			/* issue statement, as ] implies TRANS_DOT */
+			if (pp->public.hdl.stmt) {
+				pp->public.hdl.stmt(
+					pp->public.usr, pp->s[pp->S].stmt);
+			}
+			/* do the popping */
+		case STATE_BS:
+			/* BS + ] -> pop */
+			pp->S--;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_DOT:
-		switch (pp->state) {
+		switch (pp->s[pp->S].state) {
 		case STATE_O:
 			/* O + . -> 0 */
 		case STATE_Q:
 			/* Q + . -> 0 */
-			pp->state = STATE_0;
+			pp->s[pp->S].state = STATE_0;
 			break;
 		case STATE_GO:
 			/* GO + . -> G */
-			pp->state = STATE_G;
+			pp->s[pp->S].state = STATE_G;
 			break;
 		default:
 			return -1;
 		}
 		goto stmt;
 	case TRANS_COM:
-		switch (pp->state) {
+		switch (pp->s[pp->S].state) {
 		case STATE_O:
 			/* O + , -> P */
 		case STATE_GO:
 			/* GO + , -> GP */
-			pp->state--;
+		case STATE_BO:
+			/* BO + , -> BP */
+			pp->s[pp->S].state--;
 			break;
 		default:
 			return -1;
 		}
 		goto stmt;
 	case TRANS_SEM:
-		switch (pp->state) {
+		switch (pp->s[pp->S].state) {
 		case STATE_O:
 			/* O  + ; -> S */
 		case STATE_GO:
 			/* GO + ; -> GS */
-			pp->state--;
-			pp->state--;
+		case STATE_BO:
+			/* BO + ; -> BS */
+			pp->s[pp->S].state--;
+			pp->s[pp->S].state--;
 			break;
 		default:
 			return -1;
@@ -836,7 +891,7 @@ more:
 
 	stmt:
 		if (pp->public.hdl.stmt) {
-			pp->public.hdl.stmt(pp->public.usr, pp->stmt);
+			pp->public.hdl.stmt(pp->public.usr, pp->s[pp->S].stmt);
 		}
 		break;		
 	default:

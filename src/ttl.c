@@ -43,6 +43,9 @@ fwrite_term(ttl_term_t t, void *stream)
 	case TTL_TYP_LIT:
 		fwrite_lit(t.lit, stream);
 		break;
+	case TTL_TYP_BLA:
+		fprintf(stdout, "_:b%016lx", t.bla.h[0U]);
+		break;
 	default:
 		break;
 	}
