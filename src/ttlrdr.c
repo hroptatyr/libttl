@@ -236,11 +236,13 @@ static const char*
 _parse_lit(ttl_lit_t *tt, const char *bp, const char *const ep)
 {
 	const char *const sp = bp;
+	const char *bosp = bp, *eosp = bp;
 
 	switch (*bp) {
 	case '"':
 		if (ep > ++bp && *bp == '"') {
 			/* could be """ or "" */
+			bosp++, eosp++;
 			if (ep > ++bp && *bp == '"') {
 				/* aah triple-quotes */
 				bp++;
@@ -250,15 +252,20 @@ _parse_lit(ttl_lit_t *tt, const char *bp, const char *const ep)
 						*bp++ != '"'));
 				} while (bp < ep && *bp++ != '"' ||
 					 bp < ep && *bp++ != '"');
+				eosp = bp;
+				bosp += 2U, eosp -= 2U;
 			}
 		} else {
 			while (bp < ep &&
 			       (*bp == '\\' && (bp += 2U, 1) || *bp++ != '"'));
+			eosp = bp;
+			bosp++, eosp--;
 		}
 		break;
 	case '\'':
 		if (ep > ++bp && *bp == '\'') {
 			/* could be ''' or '' */
+			bosp++, eosp++;
 			if (ep > ++bp && *bp == '\'') {
 				/* aah triple-quotes */
 				bp++;
@@ -268,10 +275,14 @@ _parse_lit(ttl_lit_t *tt, const char *bp, const char *const ep)
 						*bp++ != '\''));
 				} while (bp < ep && *bp++ != '\'' ||
 					 bp < ep && *bp++ != '\'');
+				eosp = bp;
+				bosp += 2U, eosp -= 2U;
 			}
 		} else {
 			while (bp < ep &&
 			       (*bp == '\\' && (bp += 2U, 1) || *bp++ != '\''));
+			eosp = bp;
+			bosp++, eosp--;
 		}
 		break;
 	default:
@@ -282,7 +293,7 @@ _parse_lit(ttl_lit_t *tt, const char *bp, const char *const ep)
 		/* rollback */
 		return sp;
 	}
-	tt->val = (ttl_str_t){sp, bp - sp};
+	tt->val = (ttl_str_t){bosp, eosp - bosp};
 	tt->typ = (ttl_iri_t){};
 	tt->lng = (ttl_str_t){};
 	switch (*bp) {
