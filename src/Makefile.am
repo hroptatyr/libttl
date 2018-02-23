@@ -23,6 +23,14 @@ EXTRA_DIST += version.c.in
 
 noinst_HEADERS += nifty.h
 
+lib_LTLIBRARIES += libttl.la
+libttl_la_SOURCES = ttlrdr.c
+pkginclude_HEADERS += ttl.h
+
+noinst_PROGRAMS += ttl
+ttl_LDADD = libttl.la
+ttl_LDFLAGS = -static
+
 
 ## version rules
 version.c: version.c.in $(top_builddir)/.version
