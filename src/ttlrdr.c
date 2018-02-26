@@ -253,7 +253,7 @@ _parse_lit(ttl_lit_t *tt, const char *bp, const char *const ep)
 				} while (bp < ep && *bp++ != '"' ||
 					 bp < ep && *bp++ != '"');
 				eosp = bp;
-				bosp += 2U, eosp -= 2U;
+				bosp += 2U, eosp -= 3U;
 			}
 		} else {
 			while (bp < ep &&
@@ -276,7 +276,7 @@ _parse_lit(ttl_lit_t *tt, const char *bp, const char *const ep)
 				} while (bp < ep && *bp++ != '\'' ||
 					 bp < ep && *bp++ != '\'');
 				eosp = bp;
-				bosp += 2U, eosp -= 2U;
+				bosp += 2U, eosp -= 3U;
 			}
 		} else {
 			while (bp < ep &&
