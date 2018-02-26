@@ -1,0 +1,3 @@
+Usage: ttl2nt < FILE
+
+Convert FILE to ntriples.  FILE can be ttl/trig/ntriples/nquads.

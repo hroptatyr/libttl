@@ -27,9 +27,10 @@ lib_LTLIBRARIES += libttl.la
 libttl_la_SOURCES = ttlrdr.c
 pkginclude_HEADERS += ttl.h
 
-noinst_PROGRAMS += ttl
-ttl_LDADD = libttl.la
-ttl_LDFLAGS = -static
+bin_PROGRAMS += ttl2nt
+ttl2nt_LDADD = libttl.la
+ttl2nt_LDFLAGS = -static
+BUILT_SOURCES += ttl2nt.yucc
 
 
 ## version rules
