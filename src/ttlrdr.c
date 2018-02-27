@@ -989,6 +989,8 @@ more:
 			}
 			pp->s[pp->S].stmt[TTL_SUBJ] =
 				pp->s[pp->S - 1U].stmt[TTL_OBJ];
+			pp->s[pp->S].stmt[TTL_GRPH] =
+				pp->s[pp->S - 1U].stmt[TTL_GRPH];
 			pp->s[pp->S].state = STATE_BS;
 			break;
 		default:
@@ -1063,6 +1065,9 @@ more:
 	stmt:
 		if (pp->public.hdl.stmt) {
 			pp->public.hdl.stmt(pp->public.usr, pp->s[pp->S].stmt);
+		}
+		if (!pp->s[pp->S].state) {
+			pp->s[pp->S].stmt[TTL_GRPH] = (ttl_term_t){};
 		}
 		break;		
 	default:
