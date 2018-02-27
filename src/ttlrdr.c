@@ -618,19 +618,67 @@ termcpy(char *b, ttl_term_t *tt)
 static size_t
 _sbrkmv(struct _parser_s *pp)
 {
-/* move the statement into expander space */
-	const state_t base = pp->s[pp->S].state >= STATE_G ? STATE_G : STATE_0;
+/* move the statement into expander space
+ * for simple states the state itself mandates what to save:
+ * STATE_0 -> {}
+ * STATE_S -> {0}
+ * STATE_P -> {0,1}
+ * STATE_O -> {0,1,2}
+ * STATE_Q -> {0,1,2,3}
+ * STATE_G -> {3}
+ * STATE_GS -> {0,3}
+ * STATE_GP -> {0,1,3}
+ * STATE_GO -> {0,1,2,3}
+ * STATE_BS -> {0}
+ * STATE_BP -> {0,1}
+ * STATE_BO -> {0,1,2}
+ */
 	size_t tot = 0U;
 
-	for (size_t i = 0; i < pp->s[pp->S].state - base; i++) {
-		tot += termlen(pp->s[pp->S].stmt[i]);
+	/* save everything in the bottom of the stack */
+	for (size_t j = 0U; j < pp->S; j++) {
+		for (size_t i = TTL_SUBJ; i <= TTL_GRPH; i++) {
+			tot += termlen(pp->s[j].stmt[i]);
+		}
 	}
+	if (pp->s[pp->S].state < STATE_G) {
+		for (size_t i = 0; i < pp->s[pp->S].state; i++) {
+			tot += termlen(pp->s[pp->S].stmt[i]);
+		}
+	} else if (pp->s[pp->S].state < STATE_BS) {
+		tot += termlen(pp->s[pp->S].stmt[TTL_GRPH]);
+		for (size_t i = 0; i < pp->s[pp->S].state - STATE_G; i++) {
+			tot += termlen(pp->s[pp->S].stmt[i]);
+		}
+	} else {
+		for (size_t i = 0; i <= pp->s[pp->S].state - STATE_BS; i++) {
+			tot += termlen(pp->s[pp->S].stmt[i]);
+		}
+	}
+
 	if (UNLIKELY(pp->x.n + tot >= pp->x.z)) {
 		while ((pp->x.z *= 2U) < pp->x.n + tot);
 		pp->x.b = realloc(pp->x.b, pp->x.z);
 	}
-	for (size_t i = tot = 0; i < pp->s[pp->S].state - base; i++) {
-		tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[i]);
+
+	for (size_t j = tot = 0U; j < pp->S; j++) {
+		for (size_t i = TTL_SUBJ; i <= TTL_GRPH; i++) {
+			tot += termcpy(pp->x.b + tot, &pp->s[j].stmt[i]);
+		}
+	}
+	if (pp->s[pp->S].state < STATE_G) {
+		for (size_t i = 0; i < pp->s[pp->S].state; i++) {
+			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[i]);
+		}
+	} else if (pp->s[pp->S].state < STATE_BS) {
+		tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[TTL_GRPH]);
+		for (size_t i = 0; i < pp->s[pp->S].state - STATE_G; i++) {
+			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[i]);
+		}
+	} else {
+		for (size_t i = 0; i <= pp->s[pp->S].state - STATE_BS; i++) {
+			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[i]);
+		}
 	}
 	return tot;
 }
