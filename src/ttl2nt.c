@@ -47,13 +47,24 @@
 static unsigned int esc_utf8;
 static unsigned int esc_ctrl = 1U;
 
+typedef struct {
+	size_t z;
+	size_t n;
+	char *b;
+} buf_t;
+
 struct _writer_s {
 	/* expander buffer */
-	struct {
-		size_t z;
-		size_t n;
-		char *b;
-	} x;
+	buf_t x;
+	/* prefix buffer */
+	buf_t p;
+	/* expansion buffer */
+	buf_t i;
+	/* hash table of offsets into prefix and expansion buffer */
+	size_t ht;
+	size_t *po;
+	size_t *io;
+	size_t *in;
 };
 
 static inline __attribute__((pure, const)) char
@@ -196,13 +207,157 @@ enq:
 	return (ttl_str_t){ww->x.b, k};
 }
 
+static uint64_t
+MurmurHash64A(const void *key, size_t len, uint64_t seed)
+{
+#define hash(x, y)	MurmurHash64A((x), (y), 0UL)
+#define hash2(x, y, z)	MurmurHash64A((x), (y), (z))
+	const uint64_t m = 0xc6a4a7935bd1e995ULL;
+	const int r = 47;
+
+	uint64_t h = seed ^ (len * m);
+
+	const uint64_t * data = (const uint64_t *)key;
+	const uint64_t * end = data + (len/8);
+
+	while(data != end) {
+		uint64_t k = *data++;
+
+		k *= m;
+		k ^= k >> r;
+		k *= m;
+
+		h ^= k;
+		h *= m;
+	}
+
+	const unsigned char * data2 = (const unsigned char*)data;
+
+	switch(len & 7) {
+	case 7: h ^= (uint64_t)(data2[6]) << 48;
+	case 6: h ^= (uint64_t)(data2[5]) << 40;
+	case 5: h ^= (uint64_t)(data2[4]) << 32;
+	case 4: h ^= (uint64_t)(data2[3]) << 24;
+	case 3: h ^= (uint64_t)(data2[2]) << 16;
+	case 2: h ^= (uint64_t)(data2[1]) << 8;
+	case 1: h ^= (uint64_t)(data2[0]);
+		h *= m;
+		break;
+	};
+
+	h ^= h >> r;
+	h *= m;
+	h ^= h >> r;
+
+	return h;
+}
+
 
 static void
-fwrite_iri(struct _writer_s *UNUSED(w), ttl_iri_t t, void *stream)
+rehash(struct _writer_s *w, size_t nuht)
+{
+	const size_t olht = w->ht;
+	size_t *po = calloc((1ULL << nuht), sizeof(*po));
+	size_t *io = calloc((1ULL << nuht), sizeof(*io));
+	size_t *in = calloc((1ULL << nuht), sizeof(*in));
+	const size_t nmsk = (1ULL << nuht) - 1ULL;
+
+	for (size_t i = 0U, oln = (1ULL << olht); i < oln; i++) {
+		if (w->in[i]) {
+			const char *s = w->p.b + w->po[i];
+			const size_t n = strlen(s);
+			const uint64_t h = hash(s, n);
+			const size_t nusl = h & nmsk;
+
+			po[nusl] = w->po[i];
+			io[nusl] = w->io[i];
+			in[nusl] = w->in[i];
+		}
+	}
+
+	/* materialise */
+	free(w->po);
+	free(w->io);
+	free(w->in);
+	w->ht = nuht;
+	w->po = po;
+	w->io = io;
+	w->in = in;
+	return;
+}
+
+static ttl_str_t
+get_decl(const struct _writer_s *w, ttl_str_t pre)
+{
+	const uint64_t h = hash(pre.str, pre.len);
+	const size_t slot = h & ((1ULL << w->ht) - 1ULL);
+
+	return (ttl_str_t){w->i.b + w->io[slot], w->in[slot]};
+}
+
+static void
+put_decl(struct _writer_s *w, ttl_str_t pre, ttl_str_t xpn)
+{
+	const uint64_t h = hash(pre.str, pre.len);
+	size_t ht = w->ht;
+	size_t msk;
+	size_t slot;
+
+redo:
+	msk = (1ULL << ht) - 1ULL;
+	slot = h & msk;
+	if (w->in[slot] && !w->p.b[w->po[slot] + pre.len]/*\0-term'd*/ &&
+	    !memcmp(pre.str, w->p.b + w->po[slot], pre.len)) {
+		/* redefinition */
+		if (UNLIKELY(xpn.len > w->in[slot])) {
+			goto bang_xpn;
+		}
+		/* otherwise just glue the guy into the existing spot */
+		memcpy(w->i.b + w->io[slot], xpn.str, w->in[slot] = xpn.len);
+	} else if (w->in[slot]) {
+		/* conflict */
+		const char *c = w->p.b + w->po[slot];
+		const uint64_t hc = hash(c, strlen(c));
+
+		/* test with one more H bit */
+		for (ht++;
+		     (msk = ((1ULL << ht) - 1ULL), (h & msk) == (hc & msk));
+		     ht++);
+		rehash(w, ht);
+		goto redo;
+	} else {
+		/* bang prefix, \0 terminate */
+		w->po[slot] = w->p.n;
+		if (UNLIKELY(w->p.n + pre.len >= w->p.z)) {
+			while ((w->p.z *= 2U) < w->p.n + pre.len);
+			w->p.b = realloc(w->p.b, w->p.z);
+		}
+		memcpy(w->p.b + w->p.n, pre.str, pre.len);
+		w->p.b[w->p.n += pre.len] = '\0';
+		w->p.n++;
+
+	bang_xpn:
+		/* bang expansion */
+		w->io[slot] = w->i.n;
+		w->in[slot] = xpn.len;
+		if (UNLIKELY(w->i.n + xpn.len >= w->i.z)) {
+			while ((w->i.z *= 2U) < w->i.n + xpn.len);
+			w->i.b = realloc(w->i.b, w->i.z);
+		}
+		/* bang expansion */
+		memcpy(w->i.b + w->i.n, xpn.str, xpn.len);
+		w->i.n += xpn.len;
+	}
+	return;
+}
+
+static void
+fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 {
 	if (t.pre.len || t.val.len > 1U || *t.val.str != 'a') {
+		ttl_str_t x = get_decl(w, t.pre);
 		fputc('<', stdout);
-		fwrite(t.pre.str, 1, t.pre.len, stream);
+		fwrite(x.str, 1, x.len, stream);
 		fwrite(t.val.str, 1, t.val.len, stream);
 		fputc('>', stdout);
 	} else {
@@ -251,9 +406,14 @@ fwrite_term(struct _writer_s *w, ttl_term_t t, void *stream)
 	return;
 }
 
+
+
 static void
 decl(void *usr, ttl_iri_t decl)
 {
+	struct _writer_s *w = usr;
+
+	put_decl(w, decl.pre, decl.val);
 	return;
 }
 
@@ -284,8 +444,15 @@ make_writer(void)
 	if (UNLIKELY(r == NULL)) {
 		return NULL;
 	}
-	r->x.b = malloc(r->x.z = 4096U);
-	r->x.n = 0U;
+	r->x.b = malloc(r->x.z = 4096U), r->x.n = 0U;
+	/* get a tiny little hash table */
+	r->ht = 4U;
+	r->po = calloc((1ULL << r->ht), sizeof(*r->po));
+	r->io = calloc((1ULL << r->ht), sizeof(*r->io));
+	r->in = calloc((1ULL << r->ht), sizeof(*r->in));
+	/* nott too much space for prefixes and expansions either */
+	r->p.b = malloc(r->p.z = 128U), r->p.n = 0U;
+	r->i.b = malloc(r->i.z = 1024U), r->i.n = 0U;
 	return r;
 }
 
@@ -293,6 +460,11 @@ static void
 free_writer(struct _writer_s *w)
 {
 	free(w->x.b);
+	free(w->p.b);
+	free(w->i.b);
+	free(w->po);
+	free(w->io);
+	free(w->in);
 	free(w);
 	return;
 }
