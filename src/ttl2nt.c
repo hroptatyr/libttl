@@ -354,10 +354,21 @@ redo:
 static void
 fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 {
-	if (t.pre.len || t.val.len > 1U || *t.val.str != 'a') {
+	if (t.pre.len) {
 		ttl_str_t x = get_decl(w, t.pre);
+
+		if (x.len) {
+			fputc('<', stdout);
+			fwrite(x.str, 1, x.len, stream);
+			fwrite(t.val.str, 1, t.val.len, stream);
+			fputc('>', stdout);
+		} else {
+			fwrite(t.pre.str, 1, t.pre.len, stream);
+			fputc(':', stream);
+			fwrite(t.val.str, 1, t.val.len, stream);
+		}
+	} else if (t.val.len > 1U || *t.val.str != 'a') {
 		fputc('<', stdout);
-		fwrite(x.str, 1, x.len, stream);
 		fwrite(t.val.str, 1, t.val.len, stream);
 		fputc('>', stdout);
 	} else {
@@ -377,8 +388,7 @@ fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 	if (t.typ.val.len) {
 		fputc('^', stream);
 		fputc('^', stream);
-		fwrite(t.typ.pre.str, 1, t.typ.pre.len, stream);
-		fwrite(t.typ.val.str, 1, t.typ.val.len, stream);
+		fwrite_iri(w, t.typ, stream);
 	}
 	if (t.lng.len) {
 		fputc('@', stream);
