@@ -135,18 +135,6 @@ min_z(size_t a, size_t b)
 	return a < b ? a : b;
 }
 
-static __attribute__((pure, const)) uint_fast32_t
-_chex(char c)
-{
-	if (LIKELY((unsigned char)(c ^ '0') < 10)) {
-		return c ^ '0';
-	} else if ((unsigned char)(c | 0x20) - 'W' < 16){
-		return (unsigned char)(c | 0x20) - 'W';
-	}
-	/* no error code */
-	return -1U;
-}
-
 
 static const char*
 __parse_prefix(const char *bp, const char *const ep)
@@ -740,105 +728,6 @@ _append(struct _parser_s *pp, const char *str, size_t len)
 	return len;
 }
 
-static __attribute__((noinline)) ttl_str_t
-_dequot(struct _parser_s *pp, ttl_str_t str)
-{
-	size_t k;
-
-	if (LIKELY(memchr(str.str, '\\', str.len) == NULL)) {
-		return str;
-	}
-	if (UNLIKELY((k = pp->x.n) + str.len >= pp->x.z)) {
-		while ((pp->x.z *= 2U) < pp->x.n + str.len);
-		pp->x.b = realloc(pp->x.b, pp->x.z);
-	}
-	for (size_t i = 0U; i < str.len; i++, k++) {
-		/* utf8 seq ranges */
-		uint_fast32_t x = 0U;
-
-		if (LIKELY(str.str[i] != '\\')) {
-			goto literal;
-		}
-		switch (str.str[++i]) {
-		case 't':
-			pp->x.b[k] = '\t';
-			break;
-		case 'n':
-			pp->x.b[k] = '\n';
-			break;
-		case 'r':
-			pp->x.b[k] = '\r';
-			break;
-		case 'f':
-			pp->x.b[k] = '\f';
-			break;
-		case 'U':
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-		case 'u':
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-
-#define CAP0	(1U << (7U))
-#define CAP1	(1U << (11U))
-#define CAP2	(1U << (16U))
-#define CAP3	(1U << (21U))
-
-			if (x < CAP0) {
-				pp->x.b[k] = x;
-			} else if (x < CAP1) {
-				/* 110x xxxx  10xx xxxx */
-				pp->x.b[k++] = 0xc0U ^ (x >> 6U);
-				pp->x.b[k] = 0x80U ^ (x & 0b111111U);
-			} else if (x < CAP2) {
-				/* 1110 xxxx  10xx xxxx  10xx xxxx */
-				pp->x.b[k++] = 0xe0U | (x >> 12U);
-				pp->x.b[k++] = 0x80U | ((x >> 6U) & 0b111111U);
-				pp->x.b[k] = 0x80U | (x & 0b111111U);
-			} else if (x < CAP3) {
-				/* 1111 0xxx  10xx xxxx  10xx xxxx  10xx xxxx*/
-				pp->x.b[k++] = 0xf0U | (x >> 18U);
-				pp->x.b[k++] = 0x80U | ((x >> 12U) & 0b111111U);
-				pp->x.b[k++] = 0x80U | ((x >> 6U) & 0b111111U);
-				pp->x.b[k] = 0x80U | (x & 0b111111U);
-			} else {
-				pp->x.b[k] = '?';
-			}
-			break;
-		case 'a':
-			pp->x.b[k] = '\a';
-			break;
-		case 'b':
-			pp->x.b[k] = '\b';
-			break;
-		case 'v':
-			pp->x.b[k] = '\v';
-			break;
-		default:
-		literal:
-			pp->x.b[k] = str.str[i];
-			break;
-		}
-	}
-	/* return pointer to x buffer */
-	str.str = pp->x.b + pp->x.n;
-	/* new length */
-	str.len = k - pp->x.n;
-	/* up the use counter */
-	pp->x.n = k;
-	return str;
-}
-
 
 ttl_parser_t*
 ttl_make_parser(void)
@@ -973,7 +862,6 @@ more:
 			/* GP + LIT -> GO */
 		case STATE_BP:
 			/* BP + LIT -> BO */
-			tt.lit.val = _dequot(pp, tt.lit.val);
 			pp->s[pp->S].stmt[TTL_OBJ] = tt;
 			pp->s[pp->S].state++;
 			break;

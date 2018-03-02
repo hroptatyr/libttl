@@ -24,7 +24,9 @@ EXTRA_DIST += version.c.in
 noinst_HEADERS += nifty.h
 
 lib_LTLIBRARIES += libttl.la
-libttl_la_SOURCES = ttlrdr.c
+libttl_la_SOURCES =
+libttl_la_SOURCES += ttlrdr.c
+libttl_la_SOURCES += ttlstr.c
 pkginclude_HEADERS += ttl.h
 
 bin_PROGRAMS += ttl2nt
