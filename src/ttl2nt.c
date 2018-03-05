@@ -54,8 +54,8 @@ typedef struct {
 } buf_t;
 
 struct _writer_s {
-	/* expander buffer */
-	buf_t x;
+	/* codec */
+	ttl_codec_t *c;
 	/* prefix buffer */
 	buf_t p;
 	/* expansion buffer */
@@ -66,146 +66,6 @@ struct _writer_s {
 	size_t *io;
 	size_t *in;
 };
-
-static inline __attribute__((pure, const)) char
-_hexc(char c)
-{
-	if (LIKELY((unsigned char)c < 10U)) {
-		return (char)(c ^ '0');
-	}
-	/* no check for the upper bound of c */
-	return (char)(c + 'W');
-}
-
-static __attribute__((noinline)) ttl_str_t
-_enquot(struct _writer_s *ww, ttl_str_t str)
-{
-	size_t k;
-
-	if (UNLIKELY(memchr(str.str, '"', str.len) != NULL)) {
-		goto enq;
-	}
-	if (UNLIKELY(memchr(str.str, '\\', str.len) != NULL)) {
-		goto enq;
-	}
-	if (esc_ctrl && esc_utf8) {
-		for (size_t i = k = 0U; i < str.len; i++) {
-			if ((char)str.str[i] < ' ') {
-				goto enq;
-			}
-		}
-	} else if (esc_ctrl) {
-		for (size_t i = k = 0U; i < str.len; i++) {
-			if ((unsigned char)str.str[i] < ' ') {
-				goto enq;
-			}
-		}
-	} else if (esc_utf8) {
-		for (size_t i = k = 0U; i < str.len; i++) {
-			if ((char)str.str[i] < '\0') {
-				goto enq;
-			}
-		}
-	}
-	return str;
-enq:
-	if (UNLIKELY(2U * str.len >= ww->x.z)) {
-		while ((ww->x.z *= 2U) < 2U * str.len);
-		ww->x.b = realloc(ww->x.b, ww->x.z);
-	}
-	for (size_t i = k = 0U; i < str.len;) {
-		/* utf8 seq ranges */
-		uint_fast32_t x = 0U;
-
-		if (!esc_utf8 && (char)str.str[i] < '\0') {
-			goto literal;
-		} else if (esc_ctrl && (char)str.str[i] < ' ') {
-			ww->x.b[k++] = '\\';
-			switch (str.str[i++]) {
-			case '\t':
-				ww->x.b[k++] = 't';
-				break;
-			case 'n':
-				ww->x.b[k++] = 'n';
-				break;
-			case 'r':
-				ww->x.b[k++] = 'r';
-				break;
-			case 'f':
-				ww->x.b[k++] = 'f';
-				break;
-			case 'a':
-				ww->x.b[k++] = 'a';
-				break;
-			case 'b':
-				ww->x.b[k++] = 'b';
-				break;
-			case 'v':
-				ww->x.b[k++] = 'v';
-				break;
-			default:
-				i--;
-				if ((unsigned char)str.str[i] < 0x80U ||
-				    !esc_utf8) {
-					goto literal;
-				} else if ((unsigned char)str.str[i] < 0xc2U) {
-					/* invalid utf8 */
-					ww->x.b[k++] = '?';
-				} else if ((unsigned char)str.str[i] < 0xe0U) {
-					/* 110x xxxx 10xx xxxx */
-					x ^= str.str[i++] & 0b11111U;
-					x <<= 6U;
-					x ^= str.str[i++] & 0b111111U;
-					ww->x.b[k++] = 'u';
-					goto pr_u;
-				} else if ((unsigned char)str.str[i] < 0xf0U) {
-					/* 1110 xxxx 10xx xxxx 10xx xxxx */
-					x ^= str.str[i++] & 0b1111U;
-					x <<= 6U;
-					x ^= str.str[i++] & 0b111111U;
-					x <<= 6U;
-					x ^= str.str[i++] & 0b111111U;
-					ww->x.b[k++] = 'u';
-					goto pr_u;
-				} else if ((unsigned char)str.str[i] < 0xf0U) {
-					/* 1111 0xxx  10xx xxxx  10xx xxxx
-					 * 10xx xxxx */
-					x ^= str.str[i++] & 0b111U;
-					x <<= 6U;
-					x ^= str.str[i++] & 0b111111U;
-					x <<= 6U;
-					x ^= str.str[i++] & 0b111111U;
-					x <<= 6U;
-					x ^= str.str[i++] & 0b111111U;
-					ww->x.b[k++] = 'U';
-					goto pr_U;
-				} else {
-					ww->x.b[k++] = '?';
-				}
-				break;
-
-			pr_U:
-				ww->x.b[k++] = _hexc(x >> 28U & 0xfU);
-				ww->x.b[k++] = _hexc(x >> 24U & 0xfU);
-				ww->x.b[k++] = _hexc(x >> 20U & 0xfU);
-				ww->x.b[k++] = _hexc(x >> 16U & 0xfU);
-			pr_u:
-				ww->x.b[k++] = _hexc(x >> 12U & 0xfU);
-				ww->x.b[k++] = _hexc(x >> 8U & 0xfU);
-				ww->x.b[k++] = _hexc(x >> 4U & 0xfU);
-				ww->x.b[k++] = _hexc(x >> 0U & 0xfU);
-				break;
-			}
-		} else if (str.str[i] == '"' || str.str[i] == '\\') {
-			ww->x.b[k++] = '\\';
-			goto literal;
-		} else {
-		literal:
-			ww->x.b[k++] = str.str[i++];
-		}
-	}
-	return (ttl_str_t){ww->x.b, k};
-}
 
 static uint64_t
 MurmurHash64A(const void *key, size_t len, uint64_t seed)
@@ -380,7 +240,8 @@ fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 static void
 fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 {
-	t.val = _enquot(w, t.val);
+	t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_UTF8);
+	t.val = ttl_enquot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
 
 	fputc('"', stdout);
 	fwrite(t.val.str, 1, t.val.len, stream);
@@ -394,6 +255,8 @@ fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 		fputc('@', stream);
 		fwrite(t.lng.str, 1, t.lng.len, stream);
 	}
+
+	ttl_codec_clear(w->c);
 	return;
 }
 
@@ -454,7 +317,8 @@ make_writer(void)
 	if (UNLIKELY(r == NULL)) {
 		return NULL;
 	}
-	r->x.b = malloc(r->x.z = 4096U), r->x.n = 0U;
+	/* for string massage */
+	r->c = ttl_make_codec();
 	/* get a tiny little hash table */
 	r->ht = 4U;
 	r->po = calloc((1ULL << r->ht), sizeof(*r->po));
@@ -469,7 +333,7 @@ make_writer(void)
 static void
 free_writer(struct _writer_s *w)
 {
-	free(w->x.b);
+	ttl_free_codec(w->c);
 	free(w->p.b);
 	free(w->i.b);
 	free(w->po);

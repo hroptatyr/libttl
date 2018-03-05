@@ -85,6 +85,8 @@ typedef struct {
 	};
 } ttl_term_t;
 
+
+/* parser stuff */
 typedef struct {
 	void(*decl)(void *usr, ttl_iri_t decl);
 	void(*stmt)(void *usr, const ttl_term_t stmt[static 4U]);
@@ -95,7 +97,7 @@ typedef struct {
 	void *usr;
 } ttl_parser_t;
 
-
+
 extern ttl_parser_t*
 ttl_make_parser(void);
 
@@ -104,5 +106,30 @@ ttl_free_parser(ttl_parser_t*);
 
 extern int
 ttl_parse_chunk(ttl_parser_t*, const char *buf, size_t len);
+
+
+/* string massage */
+typedef struct _codec_s ttl_codec_t;
+
+enum {
+	/* quote/dequote nothing */
+	TTL_QUOT_RAW = 0U,
+	/* quote/dequote printable characters */
+	TTL_QUOT_PRNT = 1U,
+	/* quote/dequote control characters */
+	TTL_QUOT_CTRL = 2U,
+	/* quote/dequote UTF8 sequences */
+	TTL_QUOT_UTF8 = 4U,
+};
+
+extern ttl_codec_t *ttl_make_codec(void);
+
+extern void ttl_free_codec(ttl_codec_t*);
+
+extern void ttl_codec_clear(ttl_codec_t*);
+
+extern ttl_str_t ttl_dequot_str(ttl_codec_t*, ttl_str_t s, unsigned int what);
+
+extern ttl_str_t ttl_enquot_str(ttl_codec_t*, ttl_str_t s, unsigned int what);
 
 #endif	/* INCLUDED_ttl_h_ */
