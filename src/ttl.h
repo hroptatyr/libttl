@@ -114,12 +114,16 @@ typedef struct _codec_s ttl_codec_t;
 enum {
 	/* quote/dequote nothing */
 	TTL_QUOT_RAW = 0U,
+	/* quote/dequote backslash
+	 * if printables aren't dequoted backslash quoting
+	 * will effectively render them useless */
+	TTL_QUOT_BKSL = 1U,
 	/* quote/dequote printable characters */
-	TTL_QUOT_PRNT = 1U,
+	TTL_QUOT_PRNT = 2U,
 	/* quote/dequote control characters */
-	TTL_QUOT_CTRL = 2U,
+	TTL_QUOT_CTRL = 4U,
 	/* quote/dequote UTF8 sequences */
-	TTL_QUOT_UTF8 = 4U,
+	TTL_QUOT_UTF8 = 8U,
 };
 
 extern ttl_codec_t *ttl_make_codec(void);
@@ -128,8 +132,16 @@ extern void ttl_free_codec(ttl_codec_t*);
 
 extern void ttl_codec_clear(ttl_codec_t*);
 
+/**
+ * Dequote backslash-escaped sequences in S according to WHAT,
+ * which is a bit set composed of TTL_QUOT_* symbols.
+ * Dequoting will always copy S to a new location inside the
+ * codec's scratch buffer. */
 extern ttl_str_t ttl_dequot_str(ttl_codec_t*, ttl_str_t s, unsigned int what);
 
+/**
+ * Enquote special characters and sequences in S according to WHAT,
+ * which is a bit set composed of TTL_QUOT_* symbols. */
 extern ttl_str_t ttl_enquot_str(ttl_codec_t*, ttl_str_t s, unsigned int what);
 
 #endif	/* INCLUDED_ttl_h_ */
