@@ -216,7 +216,7 @@ ttl_dequot_str(ttl_codec_t *cc, ttl_str_t str, unsigned int what)
 			cc->x.b[k] = '\v';
 			break;
 		default:
-			if (!(what & TTL_QUOT_PRNT)) {
+			if (!(what & TTL_QUOT_BKSL)) {
 			escaped:
 				cc->x.b[k++] = '\\';
 			}
@@ -241,6 +241,9 @@ ttl_enquot_str(ttl_codec_t *cc, ttl_str_t str, unsigned int what)
 	size_t k = cc->x.n;
 
 	if (what & TTL_QUOT_PRNT && memchr(str.str, '"', str.len) != NULL) {
+		goto enq;
+	}
+	if (what & TTL_QUOT_BKSL && memchr(str.str, '\\', str.len) != NULL) {
 		goto enq;
 	}
 	if (what & TTL_QUOT_CTRL && what & TTL_QUOT_UTF8) {
@@ -356,6 +359,10 @@ enq:
 				cc->x.b[k++] = '?';
 				break;
 			}
+		} else if (what & TTL_QUOT_BKSL &&
+			   (unsigned char)str.str[i] == '\\') {
+			cc->x.b[k++] = '\\';
+			goto literal;
 		} else if (what & TTL_QUOT_PRNT &&
 			   (unsigned char)str.str[i] == '\\') {
 			cc->x.b[k++] = str.str[i++];
