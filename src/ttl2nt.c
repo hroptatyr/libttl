@@ -1,4 +1,4 @@
-/*** ttl.c - trig/turtle/ntriples/nquads reader
+/*** ttl2nt.c - trig/turtle/ntriples/nquads reader
  *
  * Copyright (C) 2017-2018 Sebastian Freundt
  *
@@ -41,6 +41,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
+#include <errno.h>
 #include "ttl.h"
 #include "nifty.h"
 
@@ -66,6 +68,24 @@ struct _writer_s {
 	size_t *io;
 	size_t *in;
 };
+
+
+static void
+__attribute__((format(printf, 1, 2)))
+error(const char *fmt, ...)
+{
+	va_list vap;
+	va_start(vap, fmt);
+	vfprintf(stderr, fmt, vap);
+	va_end(vap);
+	if (errno) {
+		fputc(':', stderr);
+		fputc(' ', stderr);
+		fputs(strerror(errno), stderr);
+	}
+	fputc('\n', stderr);
+	return;
+}
 
 static uint64_t
 MurmurHash64A(const void *key, size_t len, uint64_t seed)
@@ -344,12 +364,31 @@ free_writer(struct _writer_s *w)
 }
 
 
+#include "ttl2nt.yucc"
+
 int
-main(void)
+main(int argc, char *argv[])
 {
 	static char buf[16U * 4096U];
-	ttl_parser_t *p = ttl_make_parser();
-	struct _writer_s *w = make_writer();
+	static yuck_t argi[1U];
+	struct _writer_s *w = NULL;
+	ttl_parser_t *p = NULL;
+	int rc = 0;
+
+	if (yuck_parse(argi, argc, argv) < 0) {
+		rc = 1;
+		goto out;
+	} else if ((p = ttl_make_parser()) == NULL) {
+		error("\
+Error: cannot instantiate ttl parser");
+		rc = 1;
+		goto out;
+	} else if ((w = make_writer()) == NULL) {
+		error("\
+Error: cannot instantiate nt writer");
+		rc = 1;
+		goto out;
+	}
 
 	p->hdl = (ttl_handler_t){decl, stmt};
 	p->usr = w;
@@ -362,9 +401,11 @@ Error: parsing stdin\n", stderr);
 		}
 	}
 
+out:
 	ttl_free_parser(p);
 	free_writer(w);
-	return 0;
+	yuck_free(argi);
+	return rc;
 }
 
-/* ttl.c ends here */
+/* ttl2nt.c ends here */
