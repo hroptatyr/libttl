@@ -1,0 +1,3 @@
+Usage: ttl-wc [FILE]...
+
+Print statement counts for each FILE.
