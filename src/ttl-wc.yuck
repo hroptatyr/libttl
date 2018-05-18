@@ -1,3 +1,4 @@
 Usage: ttl-wc [FILE]...
 
-Print statement counts for each FILE.
+Print statement counts for each FILE, or, if omitted,
+from stdin.

@@ -39,6 +39,7 @@
 #endif	/* HAVE_CONFIG_H */
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
@@ -46,11 +47,7 @@
 #include "ttl.h"
 #include "nifty.h"
 
-typedef struct {
-	size_t z;
-	size_t n;
-	char *b;
-} buf_t;
+static size_t ns;
 
 
 static void
@@ -72,10 +69,9 @@ error(const char *fmt, ...)
 
 
 static void
-stmt(void *usr, const ttl_term_t UNUSED(stmt)[static 4U])
+stmt(void *UNUSED(usr), const ttl_term_t UNUSED(stmt)[static 4U])
 {
-	size_t *n = usr;
-	n[0U]++;
+	ns++;
 	return;
 }
 
@@ -88,7 +84,7 @@ main(int argc, char *argv[])
 	static char buf[16U * 4096U];
 	static yuck_t argi[1U];
 	ttl_parser_t *p = NULL;
-	size_t cnt = 0U;
+	size_t tots = 0U;
 	int rc = 0;
 
 	if (yuck_parse(argi, argc, argv) < 0) {
@@ -102,17 +98,36 @@ Error: cannot instantiate ttl parser");
 	}
 
 	p->hdl = (ttl_handler_t){NULL, stmt};
-	p->usr = &cnt;
 
-	for (ssize_t nrd; (nrd = read(STDIN_FILENO, buf, sizeof(buf))) > 0;) {
-		if (ttl_parse_chunk(p, buf, nrd) < 0) {
-			fputs("\
-Error: parsing stdin\n", stderr);
-			break;
+	for (size_t i = 0U; i < argi->nargs + (!argi->nargs); i++) {
+		const char *fn = argi->args[i];
+		int fd;
+
+		if (!fn) {
+			fd = STDIN_FILENO;
+			fn = "(stdin)";
+		} else if ((fd = open(fn, O_RDONLY)) < 0) {
+			error("\
+Error: cannot open file `%s'", fn);
+			continue;
 		}
+		/* otherwise read chunks thereof */
+		for (ssize_t nrd; (nrd = read(fd, buf, sizeof(buf))) > 0;) {
+			if (ttl_parse_chunk(p, buf, nrd) < 0) {
+				errno = 0, error("\
+Error: cannot parse `%s'", fn);
+				break;
+			}
+		}
+		/* give us closure */
+		close(fd);
+
+		tots += ns;
+		printf("%s\t%zu\n", fn, ns);
+		ns = 0U;
 	}
 
-	printf("%zu\n", cnt);
+	printf("total\t%zu\n", tots);
 
 out:
 	ttl_free_parser(p);
