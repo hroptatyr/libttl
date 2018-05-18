@@ -39,6 +39,7 @@
 #endif	/* HAVE_CONFIG_H */
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
@@ -393,12 +394,28 @@ Error: cannot instantiate nt writer");
 	p->hdl = (ttl_handler_t){decl, stmt};
 	p->usr = w;
 
-	for (ssize_t nrd; (nrd = read(STDIN_FILENO, buf, sizeof(buf))) > 0;) {
-		if (ttl_parse_chunk(p, buf, nrd) < 0) {
-			fputs("\
-Error: parsing stdin\n", stderr);
-			break;
+	for (size_t i = 0U; i < argi->nargs + (!argi->nargs); i++) {
+		const char *fn = argi->args[i];
+		int fd;
+
+		if (!fn) {
+			fd = STDIN_FILENO;
+			fn = "(stdin)";
+		} else if ((fd = open(fn, O_RDONLY)) < 0) {
+			error("\
+Error: cannot open file `%s'", fn);
+			continue;
 		}
+		/* otherwise read chunks thereof */
+		for (ssize_t nrd; (nrd = read(fd, buf, sizeof(buf))) > 0;) {
+			if (ttl_parse_chunk(p, buf, nrd) < 0) {
+				errno = 0, error("\
+Error: cannot parse `%s'", fn);
+				break;
+			}
+		}
+		/* give us closure */
+		close(fd);
 	}
 
 out:

@@ -1,3 +1,4 @@
-Usage: ttl2nt < FILE
+Usage: ttl2nt [FILE]...
 
-Convert FILE to ntriples.  FILE can be ttl/trig/ntriples/nquads.
+Convert FILEs to ntriples.  FILEs can be ttl/trig/ntriples/nquads.
+If omitted, read from stdin.
