@@ -34,6 +34,11 @@ ttl2nt_LDADD = libttl.la
 ttl2nt_LDFLAGS = -static
 BUILT_SOURCES += ttl2nt.yucc
 
+bin_PROGRAMS += ttl-wc
+ttl_wc_LDADD = libttl.la
+ttl_wc_LDFLAGS = -static
+BUILT_SOURCES += ttl-wc.yucc
+
 
 ## version rules
 version.c: $(srcdir)/version.c.in $(top_builddir)/.version
