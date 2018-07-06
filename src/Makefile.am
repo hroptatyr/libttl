@@ -27,6 +27,7 @@ lib_LTLIBRARIES += libttl.la
 libttl_la_SOURCES =
 libttl_la_SOURCES += ttlrdr.c
 libttl_la_SOURCES += ttlstr.c
+libttl_la_SOURCES += ttldecl.c
 pkginclude_HEADERS += ttl.h
 
 bin_PROGRAMS += ttl2nt
