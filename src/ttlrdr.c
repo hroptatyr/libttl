@@ -101,6 +101,8 @@ typedef enum {
 	TRANS_DOT,
 	TRANS_COM,
 	TRANS_SEM,
+	/* comments et al */
+	TRANS_NOP,
 } trans_t;
 
 typedef struct {
@@ -523,6 +525,14 @@ parse_trans(ttl_term_t *tt, const char **tp, const char *bp, const char *const e
 	case '}':
 		r = TRANS_BRC;
 		bp++;
+		break;
+	case '#':
+		/* a comment line */
+		while (bp < ep && *bp++ != '\n');
+		if (bp >= ep) {
+			goto rollback;
+		}
+		r = TRANS_NOP;
 		break;
 	default:
 		/* something */
@@ -984,6 +994,9 @@ more:
 			return -1;
 		}
 		goto stmt;
+
+	case TRANS_NOP:
+		break;
 
 	stmt:
 		if (pp->public.hdl.stmt) {
