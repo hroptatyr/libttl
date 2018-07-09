@@ -1,0 +1,8 @@
+@prefix X: <XXX> .
+
+X:bla  a  """Coffee \\C'""" .
+X:bla  a  '''Coffee \\C"''' .
+X:bla  a  "Coffee \\C'" .
+X:bla  a  'Coffee \\C"' .
+X:bla  a  "Coffee \\C'" .
+X:bla  a  'Coffee \\C"' .
