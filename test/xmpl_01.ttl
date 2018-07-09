@@ -1,0 +1,49 @@
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix gas: <http://schema.ga-group.nl/symbology#> .
+@prefix t: <http://franz.com/ns/allegrograph/3.0/temporal/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix figi-gii: <http://www.omg.org/spec/FIGI/GlobalInstrumentIdentifiers/> .
+@prefix figi-typ: <http://www.omg.org/spec/FIGI/SecurityTypes/> .
+@prefix mic: <http://fadyart.com/markets#> .
+@prefix ccy: <http://fadyart.com/currencies#> .
+@prefix gn: <http://www.geonames.org/ontology#> .
+@prefix org: <http://www.w3.org/ns/org#> .
+@prefix locn: <http://www.w3.org/ns/locn#> .
+@prefix rov: <http://www.w3.org/ns/regorg#> .
+@prefix leiroc: <http://www.leiroc.org/data/schema/leidata/2014/> .
+@prefix cfi: <http://schema.ga-group.nl/meta/classification/CFI/> .
+
+## symbologies
+@prefix figi: <http://openfigi.com/id/> .
+@prefix isin: <http://www.isin.org/isin-preview/?isin=> .
+@prefix mstar: <http://financials.morningstar.com/company-profile/c.action?t=> .
+@prefix lei: <http://openleis.com/legal_entities/> .
+@prefix bps: <http://bsym.bloomberg.com/pricing_source/> .
+@prefix figi: <http://openfigi.com/id/> .
+@prefix bps: <http://bsym.bloomberg.com/pricing_source/> .
+
+@prefix TIME: <2018-07-04T11:11:47Z> .
+figi:BBG00LC3F195	a	figi-gii:GlobalIdentifier ;
+	gas:componentOf	figi:BBG00LC3F0V2 ;
+	gas:sector	figi-gii:EquityMarketSector ;
+	foaf:name	"BLUECHIIP LTD" ;
+	gas:listedOn	bps:UV ;
+	gas:listedAs	"BLCPF" ;
+	gas:securityType	figi-typ:CommonStock ;
+	gas:listedSince	"2018-07-04"^^xsd:date ;
+	gas:symbolOf	<http://openfigi.com/> .
+figi:BBG001TCQXG1	a	figi-gii:ShareClassGlobalIdentifier ;
+	gas:symbolOf	<http://openfigi.com/> .
+figi:BBG00LC3F0V2	a	figi-gii:CompositeGlobalIdentifier ;
+	gas:symbolOf	<http://openfigi.com/> .
+figi:BBG00LC43M36	a	figi-gii:GlobalIdentifier ;
+	gas:componentOf	figi:BBG00LC43LN6 ;
+	gas:sector	figi-gii:EquityMarketSector ;
+	foaf:name	"CAPITALAND COMMERCIAL TRUST" ;
+	gas:listedOn	bps:UV ;
+	gas:listedAs	"CPITF" ;
+	gas:securityType	figi-typ:Reit ;
+	gas:listedSince	"2018-07-04"^^xsd:date ;
+	gas:symbolOf	<http://openfigi.com/> .
