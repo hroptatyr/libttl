@@ -369,42 +369,42 @@ swrite_term(size_t bix, const struct _world_s *w, ttl_term_t t)
 	return n;
 }
 
+static int
+fwrite_term(const struct _world_s *w, ttl_term_t t, FILE *stream)
+{
+	size_t n = swrite_term(0U, w, t);
+	return fwrite(sbuf, 1, n, stream);
+}
+
 static size_t
 swrite_stmt(char **tgt, const struct _world_s *w, const ttl_term_t s[static 3U])
 {
-	static ttl_term_t prev[2U];
-	static size_t offs[2U];
 	size_t n, m;
 
-	if (memcmp(&prev[TTL_SUBJ], &s[TTL_SUBJ], sizeof(*s))) {
-		n = 0U;
-		goto subj;
-	} else if (memcmp(&prev[TTL_PRED], &s[TTL_PRED], sizeof(*s))) {
-		n = offs[TTL_SUBJ];
-		goto pred;
-	} else {
-		n = offs[TTL_PRED];
-		goto obj;
-	}
+	n = 0U;
+	goto subj;
 subj:
 	for (m = swrite_term(n, w, s[TTL_SUBJ]); !m;) {
 		return 0U;
 	}
 	n += m, sbuf[n++] = ' ';
-	prev[TTL_SUBJ] = s[TTL_SUBJ];
-	offs[TTL_SUBJ] = n;
+	goto pred;
+
 pred:
 	for (m = swrite_term(n, w, s[TTL_PRED]); !m;) {
 		return 0U;
 	}
 	n += m, sbuf[n++] = ' ';
-	prev[TTL_PRED] = s[TTL_PRED];
-	offs[TTL_PRED] = n;
+	goto obj;
+
 obj:
 	for (m = swrite_term(n, w, s[TTL_OBJ]); !m;) {
 		return 0U;
 	}
 	n += m, sbuf[n++] = ' ';
+	goto fin;
+
+fin:
 	sbuf_sbrk(n + 1U);
 	sbuf[n++] = '.';
 	*tgt = sbuf;
@@ -805,28 +805,37 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 prfx:
 	fputs("\
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n\
-@prefix gas: <http://schema.ga-group.nl/symbology#> .\n\
+\n", stdout);
+
+"@prefix gas: <http://schema.ga-group.nl/symbology#> .\n\
 @prefix dct: <http://purl.org/dc/terms/> .\n\
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .\n\
 @prefix prov: <http://www.w3.org/ns/prov#> .\n\
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\
-\n", stdout);
+\n";
 yep:
 	n = swrite_stmt(&s, w, stmt);
+	fwrite(s, 1, n, stdout);
+	puts("");
 	prfn += mmh3(prfx + prfn, sizeof(prfx) - prfn, s, n);
 	fputc('<', stdout);
 	fwrite(prfx, 1, prfn, stdout);
-	fputs(">\ta\trdf:Statement", stdout);
-	fputs(" ;\n\trdf:subject\t", stdout);
-	n = swrite_term(0U, w, stmt[TTL_SUBJ]);
-	fwrite(sbuf, 1, n, stdout);
-	fputs(" ;\n\trdf:predicate\t", stdout);
-	n = swrite_term(0U, w, stmt[TTL_PRED]);
-	fwrite(sbuf, 1, n, stdout);
-	fputs(" ;\n\trdf:object\t", stdout);
-	n = swrite_term(0U, w, stmt[TTL_OBJ]);
-	fwrite(sbuf, 1, n, stdout);
-	fputs(" .\n", stdout);
+	fputc('>', stdout);
+	fputc('\n', stdout);
+
+	fputs("\trdf:subject\t", stdout);
+	fwrite_term(w, stmt[TTL_SUBJ], stdout);
+	fputs(" ;\n", stdout);
+
+	fputs("\trdf:predicate\t", stdout);
+	fwrite_term(w, stmt[TTL_PRED], stdout);
+	fputs(" ;\n", stdout);
+
+	fputs("\trdf:object\t", stdout);
+	fwrite_term(w, stmt[TTL_OBJ], stdout);
+	fputs(" ;\n", stdout);
+
+	fputs("\ta\trdf:Statement .\n\n", stdout);
 	return;
 }
 
