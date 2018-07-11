@@ -41,6 +41,7 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <stdio.h>
+#include <fcntl.h>
 #include "ttl.h"
 #include "nifty.h"
 
@@ -49,6 +50,8 @@ struct _world_s {
 	ttl_codec_t *c;
 	/* prefix buffer */
 	ttl_decl_t *d;
+	/* filter prefixes */
+	ttl_decl_t *f;
 };
 
 
@@ -280,12 +283,12 @@ sbuf_sbrk(size_t n)
 }
 
 static size_t
-swrite_iri(size_t bix, const struct _world_s *w, ttl_iri_t t)
+_swrite_iri(size_t bix, const ttl_decl_t *d, ttl_iri_t t)
 {
 	size_t n = 0U;
 
 	if (t.pre.len) {
-		ttl_str_t x = ttl_decl_get(w->d, t.pre);
+		ttl_str_t x = ttl_decl_get(d, t.pre);
 
 		if (UNLIKELY(!x.len)) {
 			errno = 0, error("\
@@ -311,7 +314,7 @@ Warning: prefix `%.*s' undefined", (int)t.pre.len, t.pre.str);
 }
 
 static size_t
-swrite_lit(size_t bix, const struct _world_s *w, ttl_lit_t t)
+_swrite_lit(size_t bix, const struct _world_s *w, ttl_lit_t t)
 {
 	size_t n = 0U;
 
@@ -326,7 +329,7 @@ swrite_lit(size_t bix, const struct _world_s *w, ttl_lit_t t)
 	if (t.typ.val.len) {
 		sbuf[bix + n++] = '^';
 		sbuf[bix + n++] = '^';
-		n += swrite_iri(bix + n, w, t.typ);
+		n += _swrite_iri(bix + n, w->d, t.typ);
 	}
 	if (t.lng.len) {
 		sbuf[bix + n++] = '@';
@@ -338,7 +341,7 @@ swrite_lit(size_t bix, const struct _world_s *w, ttl_lit_t t)
 }
 
 static size_t
-swrite_bla(size_t bix, const struct _world_s *UNUSED(w), ttl_bla_t t)
+_swrite_bla(size_t bix, ttl_bla_t t)
 {
 	size_t n = 0U;
 
@@ -348,19 +351,19 @@ swrite_bla(size_t bix, const struct _world_s *UNUSED(w), ttl_bla_t t)
 }
 
 static size_t
-swrite_term(size_t bix, const struct _world_s *w, ttl_term_t t)
+_swrite_term(size_t bix, const struct _world_s *w, ttl_term_t t)
 {
 	size_t n;
 
 	switch (t.typ) {
 	case TTL_TYP_IRI:
-		n = swrite_iri(bix, w, t.iri);
+		n = _swrite_iri(bix, w->d, t.iri);
 		break;
 	case TTL_TYP_LIT:
-		n = swrite_lit(bix, w, t.lit);
+		n = _swrite_lit(bix, w, t.lit);
 		break;
 	case TTL_TYP_BLA:
-		n = swrite_bla(bix, w, t.bla);
+		n = _swrite_bla(bix, t.bla);
 		break;
 	default:
 		n = 0U;
@@ -369,11 +372,29 @@ swrite_term(size_t bix, const struct _world_s *w, ttl_term_t t)
 	return n;
 }
 
+
+static size_t
+swrite_iri(char **tgt, const ttl_decl_t *d, ttl_iri_t i)
+{
+	size_t n = _swrite_iri(0, d, i);
+	*tgt = sbuf;
+	return n;
+}
+
+static size_t
+swrite_term(char **tgt, const struct _world_s *w, ttl_term_t t)
+{
+	size_t n = _swrite_term(0, w, t);
+	*tgt = sbuf;
+	return n;
+}
+
 static int
 fwrite_term(const struct _world_s *w, ttl_term_t t, FILE *stream)
 {
-	size_t n = swrite_term(0U, w, t);
-	return fwrite(sbuf, 1, n, stream);
+	char *s;
+	size_t n = swrite_term(&s, w, t);
+	return fwrite(s, 1, n, stream);
 }
 
 static size_t
@@ -384,21 +405,21 @@ swrite_stmt(char **tgt, const struct _world_s *w, const ttl_term_t s[static 3U])
 	n = 0U;
 	goto subj;
 subj:
-	for (m = swrite_term(n, w, s[TTL_SUBJ]); !m;) {
+	for (m = _swrite_term(n, w, s[TTL_SUBJ]); !m;) {
 		return 0U;
 	}
 	n += m, sbuf[n++] = ' ';
 	goto pred;
 
 pred:
-	for (m = swrite_term(n, w, s[TTL_PRED]); !m;) {
+	for (m = _swrite_term(n, w, s[TTL_PRED]); !m;) {
 		return 0U;
 	}
 	n += m, sbuf[n++] = ' ';
 	goto obj;
 
 obj:
-	for (m = swrite_term(n, w, s[TTL_OBJ]); !m;) {
+	for (m = _swrite_term(n, w, s[TTL_OBJ]); !m;) {
 		return 0U;
 	}
 	n += m, sbuf[n++] = ' ';
@@ -512,12 +533,6 @@ static raptor_term *rdfsub, *rdfpred, *rdfobj;
 static raptor_term *type;
 static raptor_term *stmt;
 static raptor_uri *rdf;
-
-static raptor_term **terms;
-static size_t nterms;
-static size_t zterms;
-static raptor_term ***beefs;
-static size_t *nbeefs;
 
 static void
 free_terms(void)
@@ -672,29 +687,85 @@ yep:
 	raptor_free_term(H);
 	return;
 }
+#endif
+static char *tbuf;
+static size_t tbsz;
+static size_t *terms;
+static size_t nterms;
+static size_t zterms;
+static char *bbuf;
+static size_t bbsz;
+static size_t *beefs;
 
 static void
-flts(void *UNUSED(user_data), raptor_statement *triple)
+free_terms(void)
+{
+	free(tbuf);
+	free(terms);
+	return;
+}
+
+static size_t
+find_term(const char *s, size_t n)
 {
 	size_t i;
-
 	for (i = 0U; i < nterms; i++) {
-		/* have we got him? */
-		if (raptor_term_equals(terms[i], triple->subject)) {
-			goto yep;
+		const size_t m = terms[i + 1U] - terms[i + 0U];
+		if (m == n && !memcmp(tbuf + terms[i], s, m)) {
+			break;
 		}
 	}
-	/* otherwise add */
-	if (UNLIKELY(nterms >= zterms)) {
-		zterms *= 2U;
-		terms = realloc(terms, zterms * sizeof(*terms));
-		beefs = recalloc(beefs, zterms / 2U, zterms, sizeof(*beefs));
-		nbeefs = recalloc(nbeefs, zterms / 2U, zterms, sizeof(*nbeefs));
-	}
-	terms[i] = raptor_term_copy(triple->subject);
-	nterms++;
+	return i;
+}
 
-yep:
+static size_t
+add_term(const char *s, size_t n)
+{
+	for (size_t i = 0U; i < nterms; i++) {
+		const size_t m = terms[i + 1U] - terms[i + 0U];
+		if (m == n && !memcmp(tbuf + terms[i], s, m)) {
+			return i;
+		}
+	}
+	if (UNLIKELY(nterms >= zterms)) {
+		zterms = (zterms * 2U) ?: 64U;
+		terms = realloc(terms, zterms * sizeof(*terms));
+//		beefs = recalloc(beefs, zterms / 2U, zterms, sizeof(*beefs));
+//		nbeefs = recalloc(nbeefs, zterms / 2U, zterms, sizeof(*nbeefs));
+	}
+	if (UNLIKELY(!tbsz || terms[nterms] + n >= tbsz)) {
+		tbsz = (tbsz * 2U) ?: 1024U;
+		tbuf = realloc(tbuf, tbsz * sizeof(*tbuf));
+	}
+	memcpy(tbuf + terms[nterms], s, n);
+	terms[nterms + 1U] = terms[nterms] + n;
+	return nterms++;
+}
+
+static void
+fdecl(void *usr, ttl_iri_t decl)
+{
+	struct _world_s *w = usr;
+
+	ttl_decl_put(w->f, decl.pre, decl.val);
+	return;
+}
+
+static void
+flts(void *usr, const ttl_term_t stmt[static 4U])
+{
+	struct _world_s *w = usr;
+	size_t i;
+
+	if (UNLIKELY(stmt[TTL_SUBJ].typ != TTL_TYP_IRI)) {
+		return;
+	}
+
+	with (char *s) {
+		size_t n = swrite_iri(&s, w->f, stmt[TTL_SUBJ].iri);
+		i = add_term(s, n);
+	}
+#if 0
 	/* bang po to beefs */
 	if (UNLIKELY(!(nbeefs[i] & (nbeefs[i] + 2U)))) {
 		/* resize */
@@ -744,38 +815,9 @@ yep:
 	default:
 		break;
 	}
+#endif
 	return;
 }
-
-static int
-fltr(const char *fn, raptor_serializer *sfold)
-{
-	raptor_parser *p = raptor_new_parser(world, "trig");
-	FILE *fp;
-	int r;
-
-	if (UNLIKELY(!(fp = fopen(fn, "r")))) {
-		return -1;
-	}
-
-	if (LIKELY(!zterms)) {
-		zterms = 64U;
-		terms = malloc(zterms * sizeof(*terms));
-		beefs = calloc(zterms, sizeof(*beefs));
-		nbeefs = calloc(zterms, sizeof(*nbeefs));
-	}
-
-	rplc = malloc(zrplc = 256U);
-
-	raptor_parser_set_statement_handler(p, NULL, flts);
-	raptor_parser_set_namespace_handler(p, sfold, nmsp);
-	r = raptor_parser_parse_file_stream(p, fp, NULL, base);
-
-	raptor_free_parser(p);
-	fclose(fp);
-	return r;
-}
-#endif
 
 
 /* our push parser */
@@ -798,25 +840,36 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 	size_t n;
 	char *s;
 
-	if (!prfx[prfn]) {
-		goto prfx;
+	if (UNLIKELY(stmt[TTL_PRED].typ != TTL_TYP_IRI)) {
+		/* huh? */
+		return;
+	} else if (!nterms) {
+		goto yep;
 	}
-	goto yep;
-prfx:
-	fputs("\
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n\
-\n", stdout);
+	/* otherwise try and find him */
+	n = swrite_iri(&s, w->d, stmt[TTL_PRED].iri);
+	if (find_term(s, n) >= nterms) {
+		/* not found */
+		return;
+	}
 
-"@prefix gas: <http://schema.ga-group.nl/symbology#> .\n\
-@prefix dct: <http://purl.org/dc/terms/> .\n\
-@prefix foaf: <http://xmlns.com/foaf/0.1/> .\n\
-@prefix prov: <http://www.w3.org/ns/prov#> .\n\
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\
-\n";
 yep:
+	if (UNLIKELY(!prfx[prfn])) {
+		fputs("\
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n", stdout);
+
+		for (ttl_decl_iter_t i = 0U; (i = ttl_decl_iter_next(w->f, i));) {
+			ttl_iri_t p = ttl_decl_iter_get(w->f, i);
+
+			fputs("@prefix ", stdout);
+			fputs(p.pre.str, stdout);
+			fputs(": <", stdout);
+			fwrite(p.val.str, 1, p.val.len, stdout);
+			fputs("> .\n", stdout);
+		}
+		fputc('\n', stdout);
+	}
 	n = swrite_stmt(&s, w, stmt);
-	fwrite(s, 1, n, stdout);
-	puts("");
 	prfn += mmh3(prfx + prfn, sizeof(prfx) - prfn, s, n);
 	fputc('<', stdout);
 	fwrite(prfx, 1, prfn, stdout);
@@ -842,7 +895,11 @@ yep:
 static struct _world_s
 make_world(void)
 {
-	return (struct _world_s){.c = ttl_make_codec(), .d = ttl_make_decl()};
+	return (struct _world_s){
+		.c = ttl_make_codec(),
+		.d = ttl_make_decl(),
+		.f = ttl_make_decl(),
+	};
 }
 
 static void
@@ -850,6 +907,7 @@ free_world(struct _world_s w)
 {
 	ttl_free_codec(w.c);
 	ttl_free_decl(w.d);
+	ttl_free_decl(w.f);
 	/* also kill sbuf here */
 	free(sbuf);
 	return;
@@ -871,16 +929,55 @@ main(int argc, char *argv[])
 		rc = 1;
 		goto out;
 	} else if ((p = ttl_make_parser()) == NULL) {
+	parser_error:
+		error("\
+Error: cannot set up parser");
 		rc = 1;
 		goto out;
 	}
 
 	w = make_world();
-	if (w.c == NULL || w.d == NULL) {
+	if (w.c == NULL || w.d == NULL || w.f == NULL) {
 		error("\
 Error: cannot instantiate ttl world");
 		rc = 1;
 		goto out;
+	}
+
+	if (argi->nargs) {
+		/* set up filter parser */
+		ttl_parser_t *f;
+		int fd;
+
+		if (UNLIKELY((fd = open(*argi->args, O_RDONLY)) < 0)) {
+			error("\
+Error: cannot open filter file `%s'", *argi->args);
+			rc = 1;
+			goto out;
+		} else if (UNLIKELY((f = ttl_make_parser()) == NULL)) {
+			close(fd);
+			goto parser_error;
+		}
+
+		f->hdl = (ttl_handler_t){fdecl, flts};
+		f->usr = &w;
+
+		for (ssize_t nrd; (nrd = read(fd, buf, sizeof(buf))) > 0;) {
+			if (UNLIKELY(ttl_parse_chunk(f, buf, nrd) < 0)) {
+				errno = 0, error("\
+Error: cannot parse filter file `%s'", *argi->args);
+				rc = 1;
+				break;
+			}
+		}
+
+		ttl_free_parser(f);
+		close(fd);
+	}
+
+	/* interim check */
+	if (UNLIKELY(rc)) {
+		goto brk;
 	}
 
 	p->hdl = (ttl_handler_t){decl, stmt};
@@ -894,8 +991,10 @@ Error: cannot parse input file `(stdin)'");
 			break;
 		}
 	}
-	close(STDIN_FILENO);
 
+brk:
+	close(STDIN_FILENO);
+	free_terms();
 out:
 	ttl_free_parser(p);
 	free_world(w);
