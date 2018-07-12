@@ -374,14 +374,6 @@ _swrite_term(size_t bix, const struct _world_s *w, ttl_term_t t)
 
 
 static size_t
-swrite_iri(char **tgt, const ttl_decl_t *d, ttl_iri_t i)
-{
-	size_t n = _swrite_iri(0, d, i);
-	*tgt = sbuf;
-	return n;
-}
-
-static size_t
 swrite_term(char **tgt, const struct _world_s *w, ttl_term_t t)
 {
 	size_t n = _swrite_term(0, w, t);
@@ -430,6 +422,54 @@ fin:
 	sbuf[n++] = '.';
 	*tgt = sbuf;
 	return n;
+}
+
+static ttl_str_t
+ttl_rwrite_iri(ttl_iri_t iri, ttl_decl_t *d)
+{
+	size_t n = _swrite_iri(0, d, iri);
+	return (ttl_str_t){sbuf, n};
+}
+
+static ttl_str_t
+ttl_repack(ttl_term_t t)
+{
+/* return raw buffer coordinates of T and its surroundings, no copying */
+	const char *s;
+	size_t n;
+
+	switch (t.typ) {
+	case TTL_TYP_IRI:
+		n = t.iri.pre.len + 1U;
+		s = t.iri.val.str - n;
+		n += t.iri.val.len + !t.iri.pre.len;
+		break;
+	case TTL_TYP_LIT:
+		n = t.lit.val.len + 2U;
+		s = t.lit.val.str - 1U;
+		/* deal with triple quotes */
+		with (unsigned int more = s[n] == s[0U]) {
+			n += 2U * more, s -= more;
+		}
+		with (unsigned int more = s[n] == s[0U]) {
+			n += 2U * more, s -= more;
+		}
+		with (ttl_iri_t typ = t.lit.typ) {
+			/* count ^^ */
+			size_t m = !!typ.val.len * 2U;
+			m += typ.pre.len + 1U;
+			m += typ.val.len + !typ.pre.len;
+			/* mask in case there's no type */
+			n += m & -!!typ.val.len;
+		}
+		n += t.lit.lng.len + !!t.lit.lng.len;
+		break;
+	default:
+		s = NULL;
+		n = 0UL;
+		break;
+	}
+	return (ttl_str_t){s, n};
 }
 
 
@@ -526,192 +566,39 @@ add_cord(const size_t r, size_t i, size_t j, raptor_term *t, size_t sufx)
 #endif
 
 
-#if 0
-static raptor_world *world;
-static raptor_uri *base;
-static raptor_term *rdfsub, *rdfpred, *rdfobj;
-static raptor_term *type;
-static raptor_term *stmt;
-static raptor_uri *rdf;
-
-static void
-free_terms(void)
-{
-	for (size_t i = 0U; i < nterms; i++) {
-		for (size_t j = 0U; j < nbeefs[i]; j++) {
-			raptor_free_term(beefs[i][j]);
-		}
-		free(beefs[i]);
-	}
-	free(beefs);
-	free(nbeefs);
-
-	for (size_t i = 0U; i < nterms; i++) {
-		raptor_free_term(terms[i]);
-	}
-	free(terms);
-	return;
-}
-
-static void
-nscp(void *user_data, raptor_namespace *ns)
-{
-	raptor_serializer *UNUSED(sfold) = user_data;
-	unsigned char *uristr;
-	size_t urilen;
-	const unsigned char *prestr;
-	size_t prelen;
-	size_t r;
-
-	prestr = raptor_namespace_get_counted_prefix(ns, &prelen);
-	if (!~(r = find_rplc(prestr, prelen))) {
-		return;
-	}
-	with (raptor_uri *uri = raptor_namespace_get_uri(ns)) {
-		uristr = raptor_uri_as_counted_string(uri, &urilen);
-	}
-	/* a service for the suffixing later on */
-	unsigned char tmp[urilen + sufxs[r]];
-	if (sufxs[r]) {
-		memcpy(tmp, uristr, urilen);
-		uristr = tmp;
-	}
-	for (size_t k = 0U; k < ncord[r]; k += 2U) {
-		/* replace terms */
-		const size_t i = cord[r][k + 0U];
-		const size_t j = cord[r][k + 1U];
-		const raptor_term *proto = cake[r][k / 2U];
-		size_t tmplen;
-
-		switch (proto->type) {
-			const unsigned char *prostr;
-			size_t prolen;
-			raptor_term *t;
-
-		case RAPTOR_TERM_TYPE_URI:
-			prostr = raptor_uri_as_counted_string(
-				proto->value.uri, &prolen);
-			goto sufxchck;
-
-		case RAPTOR_TERM_TYPE_LITERAL:
-			prostr = proto->value.literal.string;
-			prolen = proto->value.literal.string_len;
-			goto sufxchck;
-
-		sufxchck:
-			tmplen = urilen;
-			if (prelen < prolen && prostr[prelen + 1U] == ':') {
-				memcpy(uristr + urilen,
-				       prostr + (prelen + 2U),
-				       prolen - (prelen + 2U));
-				tmplen += prolen - (prelen + 2U);
-			}
-			switch (proto->type) {
-			case RAPTOR_TERM_TYPE_URI:
-				t = raptor_new_term_from_counted_uri_string(
-					world, uristr, tmplen);
-				break;
-			case RAPTOR_TERM_TYPE_LITERAL:
-				t = raptor_new_term_from_counted_literal(
-					world, uristr, tmplen,
-					proto->value.literal.datatype,
-					proto->value.literal.language,
-					proto->value.literal.language_len);
-				break;
-			}
-			/* actually do the replacing now */
-			raptor_free_term(beefs[i][j]);
-			beefs[i][j] = t;
-		default:
-			break;
-		}
-	}
-	return;
-}
-
-static void
-prnt(void *user_data, raptor_statement *triple)
-{
-#define PRFX	"http://data.ga-group.nl/meta/mmh3/"
-	static unsigned char prfx[80U] = "http://data.ga-group.nl/meta/mmh3/";
-	size_t prfn = strlenof(PRFX);
-	struct ctx_s *ctx = user_data;
-	raptor_world *w = triple->world;
-	size_t i;
-
-	if (!nterms) {
-		goto yep;
-	}
-	for (i = 0U; i < nterms; i++) {
-		/* have we got him? */
-		if (raptor_term_equals(terms[i], triple->predicate)) {
-			goto yep;
-		}
-	}
-	/* not found */
-	return;
-
-yep:
-	raptor_serializer_serialize_statement(ctx->shash, triple);
-	prfn = strlenof(PRFX);
-	prfn += _hash(prfx + prfn, sizeof(prfx) - prfn, ctx->b);
-
-	raptor_term *H = raptor_new_term_from_counted_uri_string(w, prfx, prfn);
-
-	raptor_serializer_serialize_statement(
-		ctx->sfold, &(raptor_statement){w, .subject = H, type, stmt});
-	raptor_serializer_serialize_statement(
-		ctx->sfold, &(raptor_statement){
-			w, .subject = H, rdfsub, triple->subject});
-	raptor_serializer_serialize_statement(
-		ctx->sfold, &(raptor_statement){
-			w, .subject = H, rdfpred, triple->predicate});
-	raptor_serializer_serialize_statement(
-		ctx->sfold, &(raptor_statement){
-			w, .subject = H, rdfobj, triple->object});
-
-	if (nterms) {
-		for (size_t j = 0U; j < nbeefs[i]; j += 2U) {
-			if (UNLIKELY(!beefs[i][j + 1U]->type)) {
-				continue;
-			}
-			raptor_serializer_serialize_statement(
-				ctx->sfold, &(raptor_statement){
-					w, .subject = H,
-						beefs[i][j + 0U],
-						beefs[i][j + 1U]});
-		}
-	}
-
-	raptor_serializer_flush(ctx->sfold);
-	raptor_free_term(H);
-	return;
-}
-#endif
 static char *tbuf;
 static size_t tbsz;
 static size_t *terms;
 static size_t nterms;
 static size_t zterms;
+/* for every term in terms we track a number pred/obj pairs in beefs */
 static char *bbuf;
 static size_t bbsz;
-static size_t *beefs;
+static size_t bbix;
+static size_t **beefs;
+static size_t *nbeefs;
 
 static void
 free_terms(void)
 {
 	free(tbuf);
 	free(terms);
+	for (size_t i = 0U; i < nterms; i++) {
+		free(beefs[i]);
+	}
+	free(beefs);
+	free(nbeefs);
+	free(bbuf);
 	return;
 }
 
 static size_t
-find_term(const char *s, size_t n)
+find_term(ttl_str_t x)
 {
 	size_t i;
 	for (i = 0U; i < nterms; i++) {
 		const size_t m = terms[i + 1U] - terms[i + 0U];
-		if (m == n && !memcmp(tbuf + terms[i], s, m)) {
+		if (m == x.len && !memcmp(tbuf + terms[i], x.str, x.len)) {
 			break;
 		}
 	}
@@ -719,27 +606,46 @@ find_term(const char *s, size_t n)
 }
 
 static size_t
-add_term(const char *s, size_t n)
+add_term(ttl_str_t x)
 {
 	for (size_t i = 0U; i < nterms; i++) {
 		const size_t m = terms[i + 1U] - terms[i + 0U];
-		if (m == n && !memcmp(tbuf + terms[i], s, m)) {
+		if (m == x.len && !memcmp(tbuf + terms[i], x.str, x.len)) {
 			return i;
 		}
 	}
 	if (UNLIKELY(nterms >= zterms)) {
+		const size_t oldzt = zterms;
 		zterms = (zterms * 2U) ?: 64U;
 		terms = realloc(terms, zterms * sizeof(*terms));
-//		beefs = recalloc(beefs, zterms / 2U, zterms, sizeof(*beefs));
-//		nbeefs = recalloc(nbeefs, zterms / 2U, zterms, sizeof(*nbeefs));
+		beefs = recalloc(beefs, oldzt, zterms, sizeof(*beefs));
+		nbeefs = recalloc(nbeefs, oldzt, zterms, sizeof(*nbeefs));
 	}
-	if (UNLIKELY(!tbsz || terms[nterms] + n >= tbsz)) {
+	if (UNLIKELY(!tbsz || terms[nterms] + x.len >= tbsz)) {
 		tbsz = (tbsz * 2U) ?: 1024U;
 		tbuf = realloc(tbuf, tbsz * sizeof(*tbuf));
 	}
-	memcpy(tbuf + terms[nterms], s, n);
-	terms[nterms + 1U] = terms[nterms] + n;
+	memcpy(tbuf + terms[nterms], x.str, x.len);
+	terms[nterms + 1U] = terms[nterms] + x.len;
 	return nterms++;
+}
+
+static void
+add_beef(size_t termidx, ttl_str_t x)
+{
+	const size_t i = termidx;
+	if (UNLIKELY(!(nbeefs[i] & (nbeefs[i] + 2U)))) {
+		/* resize */
+		const size_t nuz = (nbeefs[i] + 2U) * 2U;
+		beefs[i] = realloc(beefs[i], nuz * sizeof(*beefs[i]));
+	}
+	if (UNLIKELY(bbix + x.len >= bbsz)) {
+		bbsz = (bbsz * 2U) ?: 1024U;
+		bbuf = realloc(bbuf, bbsz * sizeof(*bbuf));
+	}
+	memcpy(bbuf + bbix, x.str, x.len);
+	beefs[i][nbeefs[i]++] = bbix;
+	beefs[i][nbeefs[i]++] = bbix += x.len;
 }
 
 static void
@@ -755,67 +661,17 @@ static void
 flts(void *usr, const ttl_term_t stmt[static 4U])
 {
 	struct _world_s *w = usr;
-	size_t i;
 
 	if (UNLIKELY(stmt[TTL_SUBJ].typ != TTL_TYP_IRI)) {
 		return;
 	}
 
-	with (char *s) {
-		size_t n = swrite_iri(&s, w->f, stmt[TTL_SUBJ].iri);
-		i = add_term(s, n);
+	with (ttl_str_t x = ttl_rwrite_iri(stmt[TTL_SUBJ].iri, w->f)) {
+		const size_t i = add_term(x);
+
+		add_beef(i, ttl_repack(stmt[TTL_PRED]));
+		add_beef(i, ttl_repack(stmt[TTL_OBJ]));
 	}
-#if 0
-	/* bang po to beefs */
-	if (UNLIKELY(!(nbeefs[i] & (nbeefs[i] + 2U)))) {
-		/* resize */
-		const size_t nuz = (nbeefs[i] + 2U) * 2U;
-		beefs[i] = realloc(beefs[i], nuz * sizeof(*beefs[i]));
-	}
-	beefs[i][nbeefs[i]++] = raptor_term_copy(triple->predicate);
-	beefs[i][nbeefs[i]++] = raptor_term_copy(triple->object);
-
-	/* see if triple->object contains @PREFIX semantics */
-	switch (triple->object->type) {
-		const unsigned char *str;
-		const unsigned char *eos;
-		size_t len;
-		size_t r;
-
-	case RAPTOR_TERM_TYPE_URI:
-		str = raptor_uri_as_counted_string(
-			triple->object->value.uri, &len);
-		goto chck;
-	case RAPTOR_TERM_TYPE_LITERAL:
-		str = triple->object->value.literal.string;
-		len = triple->object->value.literal.string_len;
-		goto chck;
-
-	chck:
-		if (len--, *str++ != '@') {
-			break;
-		}
-		eos = memchr(str, ':', len) ?: str + len;
-		/* see if we've got him */
-		if (!~(r = find_rplc(str, eos - str))) {
-			/* nope, add him then */
-			r = add_rplc(str, eos - str);
-		}
-		/* bang coords and keep original object term */
-		{
-			static raptor_term nul_term;
-			const size_t j = nbeefs[i] - 1U;
-			raptor_term *t = beefs[i][j];
-			const size_t sufx = str + len - eos;
-			add_cord(r, i, j, t, sufx);
-			beefs[i][j] = &nul_term;
-		}
-		break;
-
-	default:
-		break;
-	}
-#endif
 	return;
 }
 
@@ -837,6 +693,7 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 	static unsigned char prfx[80U] = PRFX;
 	struct _world_s *w = usr;
 	size_t prfn = strlenof(PRFX);
+	size_t termidx;
 	size_t n;
 	char *s;
 
@@ -847,10 +704,11 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 		goto yep;
 	}
 	/* otherwise try and find him */
-	n = swrite_iri(&s, w->d, stmt[TTL_PRED].iri);
-	if (find_term(s, n) >= nterms) {
-		/* not found */
-		return;
+	with (ttl_str_t x = ttl_rwrite_iri(stmt[TTL_PRED].iri, w->d)) {
+		if ((termidx = find_term(x)) >= nterms) {
+			/* not found */
+			return;
+		}
 	}
 
 yep:
@@ -887,6 +745,21 @@ yep:
 	fputs("\trdf:object\t", stdout);
 	fwrite_term(w, stmt[TTL_OBJ], stdout);
 	fputs(" ;\n", stdout);
+
+	if (nterms) {
+		for (size_t j = 0U; j + 3U < nbeefs[termidx]; j += 4U) {
+			const size_t pbeg = beefs[termidx][j + 0U];
+			const size_t pend = beefs[termidx][j + 1U];
+			const size_t obeg = beefs[termidx][j + 2U];
+			const size_t oend = beefs[termidx][j + 3U];
+
+			fputc('\t', stdout);
+			fwrite(bbuf + pbeg, 1, pend - pbeg, stdout);
+			fputc('\t', stdout);
+			fwrite(bbuf + obeg, 1, oend - obeg, stdout);
+			fputs(" ;\n", stdout);
+		}
+	}
 
 	fputs("\ta\trdf:Statement .\n\n", stdout);
 	return;
