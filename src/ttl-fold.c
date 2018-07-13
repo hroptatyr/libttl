@@ -89,6 +89,14 @@ recalloc(void *oldp, size_t oldz, size_t newz, size_t nmemb)
 	return p;
 }
 
+static inline __attribute__((pure, const)) int
+alnump(char c)
+{
+	return (unsigned char)(c ^ '0') < 10 ||
+		c >= 'A' && c <= 'Z' ||
+		c >= 'a' && c <= 'z';
+}
+
 
 /* murmur3 */
 #define HASHSIZE	(128U / 8U)
@@ -207,9 +215,18 @@ mmh3(unsigned char *restrict tgt, size_t tsz, const char *str, size_t len)
 	return 2U * HASHSIZE;
 }
 
-static char*
-xmemmem(const char *hay, const size_t hayz, const char *ndl, const size_t ndlz)
+static size_t
+memchrz(const char *s, int c, size_t beg, size_t end)
 {
+/* like memchr but operate on offsets */
+	const char *t = memchr(s + beg, c, end - beg);
+	return t ? t - s + 1U : end;
+}
+
+static char*
+xmemmem_(const char *hay, const size_t hayz, const char *ndl, const size_t ndlz)
+{
+/* looks for @NDL in HAY */
 	const char *const eoh = hay + hayz;
 	const char *const eon = ndl + ndlz;
 	const char *hp;
@@ -225,7 +242,7 @@ xmemmem(const char *hay, const size_t hayz, const char *ndl, const size_t ndlz)
          * that happens to begin with *NEEDLE) */
 	if (ndlz == 0UL) {
 		return deconst(hay);
-	} else if ((hay = memchr(hay, *ndl, hayz)) == NULL) {
+	} else if ((hay = memchr(hay, '@', hayz)) == NULL) {
 		/* trivial */
 		return NULL;
 	}
@@ -234,7 +251,7 @@ xmemmem(const char *hay, const size_t hayz, const char *ndl, const size_t ndlz)
 	 * guaranteed to be at least one character long.  Now computes the sum
 	 * of characters values of needle together with the sum of the first
 	 * needle_len characters of haystack. */
-	for (hp = hay + 1U, np = ndl + 1U, hsum = *hay, nsum = *hay, eqp = 1U;
+	for (hp = hay + 1U, np = ndl, hsum = *hay, nsum = *hay, eqp = 1U;
 	     hp < eoh && np < eon;
 	     hsum ^= *hp, nsum ^= *np, eqp &= *hp == *np, hp++, np++);
 
@@ -257,7 +274,7 @@ xmemmem(const char *hay, const size_t hayz, const char *ndl, const size_t ndlz)
 		 * equal at that point, it is enough to check just NZ - 1
 		 * characters for equality,
 		 * also CAND is by design < HP, so no need for range checks */
-		if (hsum == nsum && memcmp(cand, ndl, ndlz - 1U) == 0) {
+		if (hsum == nsum && memcmp(cand + 1U, ndl, ndlz - 1U) == 0) {
 			return deconst(cand);
 		}
 	}
@@ -683,6 +700,17 @@ decl(void *usr, ttl_iri_t decl)
 	struct _world_s *w = usr;
 
 	ttl_decl_put(w->d, decl.pre, decl.val);
+#if 0
+	for (size_t i = 0U; i < nterms; i++) {
+		for (size_t j = 0U; j + 3U < nbeefs[i]; j += 4U) {
+			const char *hays = bbuf + beefs[i][j + 2U];
+			const size_t hayz = beefs[i][j + 3U] - beefs[i][j + 2U];
+			if (xmemmem_(hays, hayz, decl.pre.str, decl.pre.len)) {
+				printf("got `%.*s' in `%.*s'\n", (int)hayz, hays, (int)decl.pre.len, decl.pre.str);
+			}
+		}
+	}
+#endif
 	return;
 }
 
@@ -750,12 +778,31 @@ yep:
 		for (size_t j = 0U; j + 3U < nbeefs[termidx]; j += 4U) {
 			const size_t pbeg = beefs[termidx][j + 0U];
 			const size_t pend = beefs[termidx][j + 1U];
-			const size_t obeg = beefs[termidx][j + 2U];
-			const size_t oend = beefs[termidx][j + 3U];
+			size_t obeg = beefs[termidx][j + 2U];
+			size_t oend = beefs[termidx][j + 3U];
 
 			fputc('\t', stdout);
 			fwrite(bbuf + pbeg, 1, pend - pbeg, stdout);
 			fputc('\t', stdout);
+			for (size_t o;
+			     (o = memchrz(bbuf, '@', obeg, oend)) < oend;
+			     obeg = o) {
+				fwrite(bbuf + obeg, 1, o - 1U - obeg, stdout);
+				/* find replacement in D decl table */
+				size_t qend;
+				for (qend = o;
+				     qend < oend && alnump(bbuf[qend]); qend++);
+				with (ttl_str_t pre = {bbuf + o, qend - o}) {
+					ttl_str_t r = ttl_decl_get(w->d, pre);
+
+					if (UNLIKELY(!r.len)) {
+						pre.str--, pre.len++;
+						r = pre;
+					}
+					fwrite(r.str, 1, r.len, stdout);
+				}
+				o = qend;
+			}
 			fwrite(bbuf + obeg, 1, oend - obeg, stdout);
 			fputs(" ;\n", stdout);
 		}
