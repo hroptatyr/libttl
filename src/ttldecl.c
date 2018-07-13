@@ -237,4 +237,28 @@ redo:
 	return;
 }
 
+ttl_decl_iter_t
+ttl_decl_iter_next(const ttl_decl_t *x, ttl_decl_iter_t i)
+{
+	for (size_t n = (1ULL << x->ht); i < n; i++) {
+		if (x->in[i]) {
+			return i + 1U;
+		}
+	}
+	return 0U;
+}
+
+ttl_iri_t
+ttl_decl_iter_get(const ttl_decl_t *x, ttl_decl_iter_t i)
+{
+	const size_t n = 1ULL << x->ht;
+	if (UNLIKELY(!i || i > n)) {
+		return (ttl_iri_t){};
+	}
+	/* just dress the tuple in a ttl_iri_t, the pre slot won't have a size
+	 * but it's \nul terminated */
+	i--;
+	return (ttl_iri_t){{x->x.b + x->io[i], x->in[i]}, {x->p.b + x->po[i]}};
+}
+
 /* ttldecl.c ends here */

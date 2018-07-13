@@ -150,9 +150,12 @@ extern ttl_str_t ttl_enquot_str(ttl_codec_t*, ttl_str_t s, unsigned int what);
  * The variant TTL_DECL uses static memory.  For reentrant declarators
  * use TTL_MAKE_DECL to create a closure. */
 typedef struct ttl_decl_s ttl_decl_t;
+typedef size_t ttl_decl_iter_t;
 extern ttl_decl_t *ttl_make_decl(void);
 extern void ttl_free_decl(ttl_decl_t*);
 extern ttl_str_t ttl_decl_get(const ttl_decl_t*, ttl_str_t pre);
 extern void ttl_decl_put(ttl_decl_t*, ttl_str_t pre, ttl_str_t xpn);
+extern ttl_decl_iter_t ttl_decl_iter_next(const ttl_decl_t*, ttl_decl_iter_t);
+extern ttl_iri_t ttl_decl_iter_get(const ttl_decl_t*, ttl_decl_iter_t);
 
 #endif	/* INCLUDED_ttl_h_ */

@@ -40,6 +40,11 @@ ttl_wc_LDADD = libttl.la
 ttl_wc_LDFLAGS = -static
 BUILT_SOURCES += ttl-wc.yucc
 
+bin_PROGRAMS += ttl-fold
+ttl_fold_LDADD = libttl.la
+ttl_fold_LDFLAGS = -static
+BUILT_SOURCES += ttl-fold.yucc
+
 
 ## version rules
 version.c: $(srcdir)/version.c.in $(top_builddir)/.version
