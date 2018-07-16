@@ -160,15 +160,6 @@ __parse_prefix(const char *bp, const char *const ep)
 }
 
 static const char*
-__parse_local(const char *bp, const char *const ep)
-{
-	const char *const sp = bp;
-
-	for (; bp < ep && (unsigned char)*bp > ' '; bp++);
-	return bp < ep ? bp : sp;
-}
-
-static const char*
 _parse_iri(ttl_iri_t *t, const char *bp, const char *const ep)
 {
 	const char *const sp = bp;
@@ -196,10 +187,9 @@ parse_qname(ttl_iri_t *tt, const char *bp, const char *const ep)
 		return NULL;
 	}
 	xp = bp;
-	if (UNLIKELY((bp = __parse_local(xp, ep)) == NULL)) {
-		/* propagate error */
-		return NULL;
-	} else if (bp == xp) {
+	/* parse local part */
+	for (; bp < ep && (unsigned char)*bp > ' '; bp++);
+	if (UNLIKELY(bp >= ep)) {
 		/* rollback */
 		return sp;
 	}
