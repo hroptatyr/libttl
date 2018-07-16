@@ -1,0 +1,3 @@
+@prefix figi: <http://openfigi.com/id/> .
+
+figi:	a	<figi> .
