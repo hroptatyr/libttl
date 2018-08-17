@@ -54,6 +54,8 @@ struct _world_s {
 	ttl_decl_t *f;
 };
 
+static int omit_empty_p;
+
 
 static void
 __attribute__((format(printf, 1, 2)))
@@ -628,7 +630,32 @@ yep:
 			const size_t pbeg = beefs[termidx][j + 0U];
 			const size_t pend = beefs[termidx][j + 1U];
 			size_t obeg = beefs[termidx][j + 2U];
-			size_t oend = beefs[termidx][j + 3U];
+			const size_t oend = beefs[termidx][j + 3U];
+
+			if (omit_empty_p) {
+				/* check first if replacements are defined
+				 * first as in before printing anything */
+				size_t o;
+				for (size_t xbeg = obeg;
+				     (o = memchrz(bbuf, '@', xbeg, oend)) < oend;
+				     xbeg = o) {
+					size_t qend;
+					for (qend = o;
+					     qend < oend && alnump(bbuf[qend]);
+					     qend++);
+					ttl_str_t pre = {bbuf + o, qend - o};
+					ttl_str_t r = ttl_decl_get(w->d, pre);
+
+					if (UNLIKELY(!r.len)) {
+						break;
+					}
+					o = qend;
+				}
+				if (UNLIKELY(o < oend)) {
+					/* omit this one */
+					continue;
+				}
+			}
 
 			fputc('\t', stdout);
 			fwrite(bbuf + pbeg, 1, pend - pbeg, stdout);
@@ -714,6 +741,8 @@ Error: cannot instantiate ttl world");
 		rc = 1;
 		goto out;
 	}
+
+	omit_empty_p = argi->omit_empty_flag;
 
 	if (argi->nargs) {
 		/* set up filter parser */
