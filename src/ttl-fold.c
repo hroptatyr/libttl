@@ -647,6 +647,8 @@ yep:
 					if (UNLIKELY(!r.len)) {
 						pre.str--, pre.len++;
 						r = pre;
+					} else {
+						qend += bbuf[qend] == ':';
 					}
 					fwrite(r.str, 1, r.len, stdout);
 				}
