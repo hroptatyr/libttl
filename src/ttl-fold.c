@@ -54,6 +54,8 @@ struct _world_s {
 	ttl_decl_t *f;
 };
 
+static int omit_empty_p;
+
 
 static void
 __attribute__((format(printf, 1, 2)))
@@ -221,64 +223,6 @@ memchrz(const char *s, int c, size_t beg, size_t end)
 /* like memchr but operate on offsets */
 	const char *t = memchr(s + beg, c, end - beg);
 	return t ? t - s + 1U : end;
-}
-
-static char*
-xmemmem_(const char *hay, const size_t hayz, const char *ndl, const size_t ndlz)
-{
-/* looks for @NDL in HAY */
-	const char *const eoh = hay + hayz;
-	const char *const eon = ndl + ndlz;
-	const char *hp;
-	const char *np;
-	const char *cand;
-	unsigned int hsum;
-	unsigned int nsum;
-	unsigned int eqp;
-
-	/* trivial checks first
-         * a 0-sized needle is defined to be found anywhere in haystack
-         * then run strchr() to find a candidate in HAYSTACK (i.e. a portion
-         * that happens to begin with *NEEDLE) */
-	if (ndlz == 0UL) {
-		return deconst(hay);
-	} else if ((hay = memchr(hay, '@', hayz)) == NULL) {
-		/* trivial */
-		return NULL;
-	}
-
-	/* First characters of haystack and needle are the same now. Both are
-	 * guaranteed to be at least one character long.  Now computes the sum
-	 * of characters values of needle together with the sum of the first
-	 * needle_len characters of haystack. */
-	for (hp = hay + 1U, np = ndl, hsum = *hay, nsum = *hay, eqp = 1U;
-	     hp < eoh && np < eon;
-	     hsum ^= *hp, nsum ^= *np, eqp &= *hp == *np, hp++, np++);
-
-	/* HP now references the (NZ + 1)-th character. */
-	if (np < eon) {
-		/* haystack is smaller than needle, :O */
-		return NULL;
-	} else if (eqp) {
-		/* found a match */
-		return deconst(hay);
-	}
-
-	/* now loop through the rest of haystack,
-	 * updating the sum iteratively */
-	for (cand = hay; hp < eoh; hp++) {
-		hsum ^= *cand++;
-		hsum ^= *hp;
-
-		/* Since the sum of the characters is already known to be
-		 * equal at that point, it is enough to check just NZ - 1
-		 * characters for equality,
-		 * also CAND is by design < HP, so no need for range checks */
-		if (hsum == nsum && memcmp(cand + 1U, ndl, ndlz - 1U) == 0) {
-			return deconst(cand);
-		}
-	}
-	return NULL;
 }
 
 
@@ -490,99 +434,6 @@ ttl_repack(ttl_term_t t)
 }
 
 
-/* replacement of "@PREFIX" and <@PREFIX> */
-#if 0
-static unsigned char *rplc;
-static size_t nrplc;
-static size_t zrplc;
-
-static size_t **cord;
-static size_t zcord;
-static size_t *ncord;
-static size_t *sufxs;
-static raptor_term ***cake;
-
-static void
-free_rplc(void)
-{
-	for (size_t i = 0U; i < zcord; i++) {
-		free(cord[i]);
-	}
-	for (size_t i = 0U; i < zcord; i++) {
-		for (size_t j = 0U; j < ncord[i]; j++) {
-			raptor_free_term(cake[i][j]);
-		}
-		free(cake[i]);
-	}
-	free(cord);
-	free(ncord);
-	free(cake);
-	free(sufxs);
-
-	free(rplc);
-	return;
-}
-
-static size_t
-find_rplc(const unsigned char *str, size_t len)
-{
-	const char *p;
-	size_t r;
-
-	if (!(p = xmemmem((const char*)rplc, nrplc, (const char*)str, len))) {
-		return -1ULL;
-	} else if (p[-1] != '@' || p[len]) {
-		return -1ULL;
-	}
-	r = ((const unsigned char*)p - rplc);
-	return r / sizeof(r);
-}
-
-static size_t
-add_rplc(const unsigned char *str, size_t len)
-{
-/* register prefix STR (sans the @) of size LEN
- * we align the strings on a sizeof(size_t) boundary */
-	size_t r = nrplc;
-
-	if (UNLIKELY(nrplc + len + sizeof(r) >= zrplc)) {
-		while ((zrplc *= 2U) < nrplc + len + sizeof(r));
-		rplc = realloc(rplc, zrplc);
-	}
-	rplc[nrplc++] = '@';
-	memcpy(rplc + nrplc, str, len);
-	nrplc += len;
-	/* fast forward to next boundary */
-	memset(rplc + nrplc, 0, sizeof(r) - (nrplc % sizeof(r)));
-	nrplc += sizeof(r) - (nrplc % sizeof(r));
-	return r / sizeof(r);
-}
-
-static void
-add_cord(const size_t r, size_t i, size_t j, raptor_term *t, size_t sufx)
-{
-	if (UNLIKELY(r >= zcord)) {
-		const size_t nuz = (zcord * 2U) ?: 64U;
-		cord = recalloc(cord, zcord, nuz, sizeof(*cord));
-		cake = recalloc(cake, zcord, nuz, sizeof(*cake));
-		ncord = recalloc(ncord, zcord, nuz, sizeof(*ncord));
-		sufxs = recalloc(sufxs, zcord, nuz, sizeof(*sufxs));
-		zcord = nuz;
-	}
-	if (UNLIKELY(!(ncord[r] & (ncord[r] + 2U)))) {
-		const size_t nuz = (ncord[r] + 2U) * 2U;
-		cord[r] = realloc(cord[r], nuz * sizeof(*cord[r]));
-		cake[r] = realloc(cake[r], nuz * sizeof(*cake[r]));
-	}
-	cake[r][ncord[r] / 2U] = raptor_term_copy(t);
-	cord[r][ncord[r]++] = i;
-	cord[r][ncord[r]++] = j;
-	sufxs[r] = (sufx > sufxs[r]) ? sufx : sufxs[r];
-	return;	
-}
-#endif
-
-
 static char *tbuf;
 static size_t tbsz;
 static size_t *terms;
@@ -779,7 +630,32 @@ yep:
 			const size_t pbeg = beefs[termidx][j + 0U];
 			const size_t pend = beefs[termidx][j + 1U];
 			size_t obeg = beefs[termidx][j + 2U];
-			size_t oend = beefs[termidx][j + 3U];
+			const size_t oend = beefs[termidx][j + 3U];
+
+			if (omit_empty_p) {
+				/* check first if replacements are defined
+				 * first as in before printing anything */
+				size_t o;
+				for (size_t xbeg = obeg;
+				     (o = memchrz(bbuf, '@', xbeg, oend)) < oend;
+				     xbeg = o) {
+					size_t qend;
+					for (qend = o;
+					     qend < oend && alnump(bbuf[qend]);
+					     qend++);
+					ttl_str_t pre = {bbuf + o, qend - o};
+					ttl_str_t r = ttl_decl_get(w->d, pre);
+
+					if (UNLIKELY(!r.len)) {
+						break;
+					}
+					o = qend;
+				}
+				if (UNLIKELY(o < oend)) {
+					/* omit this one */
+					continue;
+				}
+			}
 
 			fputc('\t', stdout);
 			fwrite(bbuf + pbeg, 1, pend - pbeg, stdout);
@@ -798,6 +674,8 @@ yep:
 					if (UNLIKELY(!r.len)) {
 						pre.str--, pre.len++;
 						r = pre;
+					} else {
+						qend += bbuf[qend] == ':';
 					}
 					fwrite(r.str, 1, r.len, stdout);
 				}
@@ -863,6 +741,8 @@ Error: cannot instantiate ttl world");
 		rc = 1;
 		goto out;
 	}
+
+	omit_empty_p = argi->omit_empty_flag;
 
 	if (argi->nargs) {
 		/* set up filter parser */

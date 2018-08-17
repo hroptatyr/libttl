@@ -24,7 +24,10 @@ and objects of a statement will be appended to the reified
 statement.
 
 Objects in the filter file of the form <@PREFIX[:SUFFIX]>
-or "@PREFIX[:SUFFIX]" will be treated as PREFIX:[SUFFIX] in
+or "@PREFIX[:SUFFIX]" will be treated as PREFIX[SUFFIX] in
 the output but with @prefix PREFIX declared in NQUADS.
 If an IRI or a literal starting with @ need to be inserted
 use \@ to escape that character.
+
+  --omit-empty          Undefined prefixes (or empty ones) will
+                        not be included in the output.
