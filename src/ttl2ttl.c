@@ -106,12 +106,14 @@ fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 static void
 fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 {
-	t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_UTF8);
-	t.val = ttl_enquot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
+	size_t i = 1U;
 
-	fputc('"', stdout);
+	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
+	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
+	
+	fwrite(t.val.str - i, 1, i, stream);
 	fwrite(t.val.str, 1, t.val.len, stream);
-	fputc('"', stdout);
+	fwrite(t.val.str - i, 1, i, stream);
 	if (t.typ.val.len) {
 		fputc('^', stream);
 		fputc('^', stream);
