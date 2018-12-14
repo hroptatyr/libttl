@@ -948,15 +948,24 @@ more:
 		case STATE_Q:
 			/* Q + . -> 0 */
 			pp->s[pp->S].state = STATE_0;
-			break;
+			goto stmt;
 		case STATE_GO:
 			/* GO + . -> G */
+			pp->s[pp->S].state = STATE_G;
+			goto stmt;
+
+		case STATE_S:
+			/* O ; . -> 0 */
+			pp->s[pp->S].state = STATE_0;
+			break;
+		case STATE_GS:
+			/* GO ; . -> G */
 			pp->s[pp->S].state = STATE_G;
 			break;
 		default:
 			return -1;
 		}
-		goto stmt;
+		break;
 	case TRANS_COM:
 		switch (pp->s[pp->S].state) {
 		case STATE_O:
