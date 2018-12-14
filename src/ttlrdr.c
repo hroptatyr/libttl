@@ -360,6 +360,7 @@ _parse_dir(ttl_iri_t *t, const char *bp, const char *const ep)
 	static const char prfx[] = "@prefix";
 	static const char base[] = "@base";
 	const char *const sp = bp;
+	ttl_str_t pre = {};
 	enum {
 		DTYP_UNK,
 		DTYP_PRFX,
@@ -404,7 +405,7 @@ _parse_dir(ttl_iri_t *t, const char *bp, const char *const ep)
 				/* rollback */
 				return sp;
 			}
-			t->pre = (ttl_str_t){tp, bp - tp - 1U};
+			pre = (ttl_str_t){tp, bp - tp - 1U};
 		}
 
 		/* fallthrough */
@@ -425,6 +426,7 @@ _parse_dir(ttl_iri_t *t, const char *bp, const char *const ep)
 				return sp;
 			}
 			/* assemble the target */
+			t->pre = pre;
 			t->val = tmp.val;
 		}
 		break;
@@ -946,15 +948,24 @@ more:
 		case STATE_Q:
 			/* Q + . -> 0 */
 			pp->s[pp->S].state = STATE_0;
-			break;
+			goto stmt;
 		case STATE_GO:
 			/* GO + . -> G */
+			pp->s[pp->S].state = STATE_G;
+			goto stmt;
+
+		case STATE_S:
+			/* O ; . -> 0 */
+			pp->s[pp->S].state = STATE_0;
+			break;
+		case STATE_GS:
+			/* GO ; . -> G */
 			pp->s[pp->S].state = STATE_G;
 			break;
 		default:
 			return -1;
 		}
-		goto stmt;
+		break;
 	case TRANS_COM:
 		switch (pp->s[pp->S].state) {
 		case STATE_O:
