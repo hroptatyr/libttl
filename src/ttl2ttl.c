@@ -80,7 +80,9 @@ error(const char *fmt, ...)
 static void
 fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 {
-	if (t.pre.len) {
+	if (UNLIKELY(!t.pre.len && t.val.len == 1U && *t.val.str == 'a')) {
+		fputc('a', stdout);
+	} else if (t.pre.str) {
 		ttl_str_t x = ttl_decl_get(w->d, t.pre);
 
 		if (x.len) {
@@ -93,12 +95,10 @@ fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 			fputc(':', stream);
 			fwrite(t.val.str, 1, t.val.len, stream);
 		}
-	} else if (t.val.len > 1U || *t.val.str != 'a') {
+	} else {
 		fputc('<', stdout);
 		fwrite(t.val.str, 1, t.val.len, stream);
 		fputc('>', stdout);
-	} else {
-		fputc('a', stdout);
 	}
 	return;
 }
