@@ -1,0 +1,32 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix figi: <http://openfigi.com/id/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qb: <http://purl.org/linked-data/cube#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit#> .
+@prefix ccy: <http://ga.local/ccy#> .
+@prefix intr: <http://ga.local/intr#> .
+@prefix iv: <http://reference.data.gov.uk/def/intervals/> .
+@prefix iv-y: <http://reference.data.gov.uk/id/year/> .
+@prefix iv-q: <http://reference.data.gov.uk/id/quarter/> .
+@prefix iv-m: <http://reference.data.gov.uk/id/month/> .
+@prefix iv-w: <http://reference.data.gov.uk/id/week/> .
+@prefix iv-d: <http://reference.data.gov.uk/id/day/> .
+@prefix sdmx-con: <http://purl.org/linked-data/sdmx/2009/concept#> .
+@prefix sdmx-dim: <http://purl.org/linked-data/sdmx/2009/dimension#> .
+@prefix sdmx-msr: <http://purl.org/linked-data/sdmx/2009/measure#> .
+@prefix sdmx-atr: <http://purl.org/linked-data/sdmx/2009/attribute#> .
+@prefix : <http://ga.local/eco#> .
+
+
+:period
+	a	rdf:Property	;
+	a	qb:DimensionProperty	;
+	rdfs:label	"reference period"	;
+	rdfs:subPropertyOf	sdmx-dim:refPeriod	;
+	rdfs:range	iv:Interval	;
+	qb:concept	sdmx-con:refPeriod	.
+
