@@ -1,0 +1,4 @@
+Usage: ttl-rm [FILE]...
+
+Emit DELETE statements for triples in FILE, or, if omitted,
+from stdin.
