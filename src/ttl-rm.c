@@ -56,6 +56,7 @@ struct _writer_s {
 };
 
 static ttl_term_t dflt_grph;
+static size_t nstmt = 1000ULL;
 
 
 static void
@@ -230,7 +231,7 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 		/* last statement */
 		puts("};");
 		ns = 0U;
-	} else if (!termeqp(w, stmt[TTL_GRPH], grph) || !(ns % 100ULL)) {
+	} else if (!termeqp(w, stmt[TTL_GRPH], grph) || !(ns % nstmt)) {
 		if (LIKELY(ns)) {
 			puts("};");
 		}
@@ -307,6 +308,15 @@ Error: cannot instantiate ttl parser");
 		dflt_grph = (ttl_term_t){TTL_TYP_IRI, .iri = {{gstr, glen}}};
 	} else {
 		dflt_grph = (ttl_term_t){TTL_TYP_UNK};
+	}
+
+	if (argi->batch_arg) {
+		if (!(nstmt = strtoull(argi->batch_arg, NULL, 0))) {
+			error("\
+Error: invalid batch size");
+			rc = 1;
+			goto out;
+		}
 	}
 
 	w = make_writer();
