@@ -182,6 +182,12 @@ clon_iri(struct _writer_s *w, ttl_iri_t i)
 	size_t ilen = 0U;
 	ttl_str_t x = {.len = 0U};
 
+#define free_clon_iri()	clon_iri(NULL, (ttl_iri_t){NULL})
+	if (UNLIKELY(w == NULL)) {
+		free(lbuf);
+		return i;
+	}
+
 	if (i.pre.len) {
 		x = ttl_decl_get(w->d, i.pre);
 	}
@@ -356,6 +362,7 @@ Error: cannot parse `%s'", fn);
 	}
 
 out:
+	free_clon_iri();
 	ttl_free_parser(p);
 	free_writer(w);
 	yuck_free(argi);
