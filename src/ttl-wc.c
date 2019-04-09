@@ -69,9 +69,10 @@ error(const char *fmt, ...)
 
 
 static void
-stmt(void *UNUSED(usr), const ttl_term_t UNUSED(stmt)[static 4U])
+stmt(void *UNUSED(usr), const ttl_term_t stmt[static 4U])
 {
 	ns++;
+	(void)stmt;
 	return;
 }
 

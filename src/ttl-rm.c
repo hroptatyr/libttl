@@ -221,7 +221,7 @@ decl(void *usr, ttl_iri_t decl)
 }
 
 static void
-stmt(void *usr, const ttl_term_t UNUSED(stmt)[static 4U])
+stmt(void *usr, const ttl_term_t stmt[static 4U])
 {
 	static size_t ns;
 	static ttl_term_t grph;
