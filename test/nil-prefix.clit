@@ -1,8 +1,8 @@
 #!/usr/bin/clitoris  ## -*- shell-script -*-
 
 $ ttl2nt "${srcdir}/nil-prefix.ttl"
-<http://ga.local/eco#period>	a	<http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>	.
-<http://ga.local/eco#period>	a	<http://purl.org/linked-data/cube#DimensionProperty>	.
+<http://ga.local/eco#period>	<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>	.
+<http://ga.local/eco#period>	<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://purl.org/linked-data/cube#DimensionProperty>	.
 <http://ga.local/eco#period>	<http://www.w3.org/2000/01/rdf-schema#label>	"reference period"	.
 <http://ga.local/eco#period>	<http://www.w3.org/2000/01/rdf-schema#subPropertyOf>	<http://purl.org/linked-data/sdmx/2009/dimension#refPeriod>	.
 <http://ga.local/eco#period>	<http://www.w3.org/2000/01/rdf-schema#range>	<http://reference.data.gov.uk/def/intervals/Interval>	.
