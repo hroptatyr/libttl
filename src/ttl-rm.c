@@ -80,7 +80,7 @@ fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 	if (UNLIKELY(!t.pre.len && t.val.len == 1U && *t.val.str == 'a')) {
 		static const char a[] =
 			"<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>";
-		fwrite(a, 1, countof(a), stream);
+		fwrite(a, 1, sizeof(a) - 1U, stream);
 	} else if (t.pre.str) {
 		ttl_str_t x = ttl_decl_get(w->d, t.pre);
 
