@@ -321,8 +321,8 @@ _parse_lit(ttl_lit_t *tt, const char *bp, const char *const ep)
 		return sp;
 	}
 	tt->val = (ttl_str_t){bosp, eosp - bosp};
-	tt->typ = (ttl_iri_t){};
-	tt->lng = (ttl_str_t){};
+	tt->typ = (ttl_iri_t){NULL};
+	tt->lng = (ttl_str_t){NULL};
 	switch (*bp) {
 		const char *xp;
 
@@ -557,6 +557,9 @@ _strlen(ttl_str_t x)
 static size_t
 _strcpy(char *b, ttl_str_t *x)
 {
+	if (x->str == NULL) {
+		return 0UL;
+	}
 	if (UNLIKELY(x->str == b)) {
 		/* moved already */
 		;
@@ -745,7 +748,7 @@ ttl_make_parser(void)
 	r->S = 0U;
 	r->s = malloc((r->Z = 4U) * sizeof(*r->s));
 	r->s[r->S].state = STATE_0;
-	r->s[r->S].stmt[TTL_GRPH] = (ttl_term_t){};
+	r->s[r->S].stmt[TTL_GRPH] = (ttl_term_t){TTL_TYP_UNK};
 	return &r->public;
 }
 
