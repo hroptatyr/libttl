@@ -55,6 +55,8 @@ struct _writer_s {
 	ttl_decl_t *d;
 };
 
+static ttl_term_t dflt_grph;
+
 
 static void
 __attribute__((format(printf, 1, 2)))
@@ -199,15 +201,12 @@ clon_iri(struct _writer_s *w, ttl_iri_t i)
 }
 
 static ttl_term_t
-clon(struct _writer_s *w, ttl_term_t t)
+clon_grph(struct _writer_s *w, ttl_term_t t)
 {
-	switch (t.typ) {
-	case TTL_TYP_IRI:
+	if (t.typ == TTL_TYP_IRI) {
 		return (ttl_term_t){TTL_TYP_IRI, clon_iri(w, t.iri)};
-	default:
-		break;
 	}
-	return (ttl_term_t){TTL_TYP_UNK};
+	return dflt_grph;
 }
 
 
@@ -235,13 +234,13 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 		if (LIKELY(ns)) {
 			puts("};");
 		}
+		grph = clon_grph(w, stmt[TTL_GRPH]);
 		fputs("SPARQL", stdout);
-		if (stmt[TTL_GRPH].typ) {
+		if (grph.typ) {
 			fputs(" WITH ", stdout);
-			fwrite_iri(w, stmt[TTL_GRPH].iri, stdout);
+			fwrite_iri(w, grph.iri, stdout);
 		}
 		fputs(" DELETE DATA {\n", stdout);
-		grph = clon(w, stmt[TTL_GRPH]);
 		ns = 0U;
 		goto wr;
 	} else {
@@ -294,6 +293,20 @@ main(int argc, char *argv[])
 Error: cannot instantiate ttl parser");
 		rc = 1;
 		goto out;
+	}
+
+	if (argi->graph_arg) {
+		const char *gstr = argi->graph_arg;
+		size_t glen = strlen(gstr);
+
+		glen -= glen > 0U && gstr[glen - 1U] == '>';
+		with (unsigned int x = glen > 0U && gstr[0U] == '<') {
+			gstr += x;
+			glen -= x;
+		}
+		dflt_grph = (ttl_term_t){TTL_TYP_IRI, .iri = {{gstr, glen}}};
+	} else {
+		dflt_grph = (ttl_term_t){TTL_TYP_UNK};
 	}
 
 	w = make_writer();
