@@ -50,6 +50,11 @@ ttl_fold_LDADD = libttl.la
 ttl_fold_LDFLAGS = -static
 BUILT_SOURCES += ttl-fold.yucc
 
+bin_PROGRAMS += ttl-rm
+ttl_rm_LDADD = libttl.la
+ttl_rm_LDFLAGS = -static
+BUILT_SOURCES += ttl-rm.yucc
+
 
 ## version rules
 version.c: $(srcdir)/version.c.in $(top_builddir)/.version

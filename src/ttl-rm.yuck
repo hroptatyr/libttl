@@ -1,0 +1,7 @@
+Usage: ttl-rm [FILE]...
+
+Emit DELETE statements for triples in FILE, or, if omitted,
+from stdin.
+
+  -g, --graph=URI       Default graph IRI.
+  -n, --batch=SIZE      Batch statements in piles of size SIZE.

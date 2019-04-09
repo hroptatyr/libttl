@@ -1,4 +1,4 @@
-/*** ttl2nt.c - trig/turtle/ntriples/nquads reader
+/*** ttl-rm.c -- turn triples into SPARQL DELETE instructions
  *
  * Copyright (C) 2017-2018 Sebastian Freundt
  *
@@ -43,12 +43,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <errno.h>
 #include "ttl.h"
 #include "nifty.h"
-
-static unsigned int esc_utf8;
-static unsigned int esc_ctrl = 1U;
 
 struct _writer_s {
 	/* codec */
@@ -56,6 +54,9 @@ struct _writer_s {
 	/* prefix buffer */
 	ttl_decl_t *d;
 };
+
+static ttl_term_t dflt_grph;
+static size_t nstmt = 1000ULL;
 
 
 static void
@@ -107,12 +108,14 @@ fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 static void
 fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 {
-	t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_UTF8);
-	t.val = ttl_enquot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
+	size_t i = 1U;
 
-	fputc('"', stdout);
+	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
+	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
+	
+	fwrite(t.val.str - i, 1, i, stream);
 	fwrite(t.val.str, 1, t.val.len, stream);
-	fputc('"', stdout);
+	fwrite(t.val.str - i, 1, i, stream);
 	if (t.typ.val.len) {
 		fputc('^', stream);
 		fputc('^', stream);
@@ -146,6 +149,72 @@ fwrite_term(struct _writer_s *w, ttl_term_t t, void *stream)
 	return;
 }
 
+static bool
+irieqp(struct _writer_s *w, ttl_iri_t i1, ttl_iri_t i2)
+{
+	if (i1.pre.len) {
+		ttl_str_t x = ttl_decl_get(w->d, i1.pre);
+
+		return x.len <= i2.val.len &&
+			!memcmp(x.str, i2.val.str, x.len) &&
+			x.len + i1.val.len == i2.val.len &&
+			!memcmp(i1.val.str, i2.val.str + x.len, i1.val.len);
+	} else if (i1.val.len > 1U || *i1.val.str != 'a') {
+		return i1.val.len == i2.val.len &&
+			!memcmp(i1.val.str, i2.val.str, i1.val.len);
+	}
+	return *i1.val.str == *i2.val.str;
+}
+
+static bool
+termeqp(struct _writer_s *w, ttl_term_t t1, ttl_term_t t2)
+{
+	return t1.typ == t2.typ &&
+		(t1.typ == TTL_TYP_IRI && irieqp(w, t1.iri, t2.iri)) ||
+		(t1.typ == TTL_TYP_UNK);
+}
+
+static ttl_iri_t
+clon_iri(struct _writer_s *w, ttl_iri_t i)
+{
+	static char *lbuf;
+	static size_t zbuf;
+	size_t ilen = 0U;
+	ttl_str_t x = {.len = 0U};
+
+#define free_clon_iri()	clon_iri(NULL, (ttl_iri_t){NULL})
+	if (UNLIKELY(w == NULL)) {
+		free(lbuf);
+		return i;
+	}
+
+	if (i.pre.len) {
+		x = ttl_decl_get(w->d, i.pre);
+	}
+	ilen += x.len;
+	ilen += i.val.len;
+
+	if (UNLIKELY(ilen > zbuf)) {
+		size_t nu;
+		for (nu = (2U * zbuf) ?: 64U; nu <= ilen; nu *= 2U);
+		lbuf = realloc(lbuf, nu);
+		zbuf = nu;
+	}
+	if (i.pre.len) {
+		memcpy(lbuf, x.str, x.len);
+	}
+	memcpy(lbuf + x.len, i.val.str, i.val.len);
+	return (ttl_iri_t){{lbuf, ilen}};
+}
+
+static ttl_term_t
+clon_grph(struct _writer_s *w, ttl_term_t t)
+{
+	if (t.typ == TTL_TYP_IRI) {
+		return (ttl_term_t){TTL_TYP_IRI, clon_iri(w, t.iri)};
+	}
+	return dflt_grph;
+}
 
 
 static void
@@ -160,20 +229,40 @@ decl(void *usr, ttl_iri_t decl)
 static void
 stmt(void *usr, const ttl_term_t stmt[static 4U])
 {
+	static size_t ns;
+	static ttl_term_t grph;
 	struct _writer_s *w = usr;
 
-	fwrite_term(w, stmt[TTL_SUBJ], stdout);
-	fputc('\t', stdout);
-	fwrite_term(w, stmt[TTL_PRED], stdout);
-	fputc('\t', stdout);
-	fwrite_term(w, stmt[TTL_OBJ], stdout);
-	if (stmt[TTL_GRPH].typ) {
+	if (UNLIKELY(!stmt[TTL_SUBJ].typ) && LIKELY(ns)) {
+		/* last statement */
+		puts("};");
+		ns = 0U;
+	} else if (!termeqp(w, stmt[TTL_GRPH], grph) || !(ns % nstmt)) {
+		if (LIKELY(ns)) {
+			puts("};");
+		}
+		grph = clon_grph(w, stmt[TTL_GRPH]);
+		fputs("SPARQL", stdout);
+		if (grph.typ) {
+			fputs(" WITH ", stdout);
+			fwrite_iri(w, grph.iri, stdout);
+		}
+		fputs(" DELETE DATA {\n", stdout);
+		ns = 0U;
+		goto wr;
+	} else {
+	wr:
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_GRPH], stdout);
+		fwrite_term(w, stmt[TTL_SUBJ], stdout);
+		fputc('\t', stdout);
+		fwrite_term(w, stmt[TTL_PRED], stdout);
+		fputc('\t', stdout);
+		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fputc('\t', stdout);
+		fputc('.', stdout);
+		fputc('\n', stdout);
+		ns++;
 	}
-	fputc('\t', stdout);
-	fputc('.', stdout);
-	fputc('\n', stdout);
 	return;
 }
 
@@ -192,7 +281,7 @@ free_writer(struct _writer_s w)
 }
 
 
-#include "ttl2nt.yucc"
+#include "ttl-rm.yucc"
 
 int
 main(int argc, char *argv[])
@@ -211,6 +300,29 @@ main(int argc, char *argv[])
 Error: cannot instantiate ttl parser");
 		rc = 1;
 		goto out;
+	}
+
+	if (argi->graph_arg) {
+		const char *gstr = argi->graph_arg;
+		size_t glen = strlen(gstr);
+
+		glen -= glen > 0U && gstr[glen - 1U] == '>';
+		with (unsigned int x = glen > 0U && gstr[0U] == '<') {
+			gstr += x;
+			glen -= x;
+		}
+		dflt_grph = (ttl_term_t){TTL_TYP_IRI, .iri = {{gstr, glen}}};
+	} else {
+		dflt_grph = (ttl_term_t){TTL_TYP_UNK};
+	}
+
+	if (argi->batch_arg) {
+		if (!(nstmt = strtoull(argi->batch_arg, NULL, 0))) {
+			error("\
+Error: invalid batch size");
+			rc = 1;
+			goto out;
+		}
 	}
 
 	w = make_writer();
@@ -246,13 +358,15 @@ Error: cannot parse `%s'", fn);
 		}
 		/* give us closure */
 		close(fd);
+		stmt(&w, (ttl_term_t[4U]){});
 	}
 
 out:
+	free_clon_iri();
 	ttl_free_parser(p);
 	free_writer(w);
 	yuck_free(argi);
 	return rc;
 }
 
-/* ttl2nt.c ends here */
+/* ttl-rm.c ends here */
