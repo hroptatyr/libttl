@@ -599,6 +599,13 @@ litlen(ttl_lit_t x)
 	len += x.val.len;
 	len += irilen(x.typ);
 	len += x.lng.len;
+
+	/* copy quote characters as chosen by the user */
+	with (size_t i = 1U) {
+		i += x.val.str[0 - i] == x.val.str[0 - i - 1];
+		i += x.val.str[0 - i] == x.val.str[0 - i - 1];
+		len += i + i;
+	}
 	return len;
 }
 
@@ -606,8 +613,29 @@ static size_t
 litcpy(char *b, ttl_lit_t *x)
 {
 	size_t len = 0U;
+	size_t i = 1U;
+
+	i += x->val.str[0 - i] == x->val.str[0 - i - 1];
+	i += x->val.str[0 - i] == x->val.str[0 - i - 1];
+
+	/* quote character in its multiplicity */
+	b[len] = x->val.str[-1];
+	len += i > 2U;
+	b[len] = x->val.str[-1];
+	len += i > 1U;
+	b[len] = x->val.str[-1];
+	len += i > 0U;
 
 	len += _strcpy(b + len, &x->val);
+
+	/* and again */
+	b[len] = x->val.str[-1];
+	len += i > 2U;
+	b[len] = x->val.str[-1];
+	len += i > 1U;
+	b[len] = x->val.str[-1];
+	len += i > 0U;
+
 	len += iricpy(b + len, &x->typ);
 	len += _strcpy(b + len, &x->lng);
 	return len;
