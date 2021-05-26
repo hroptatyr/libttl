@@ -355,6 +355,42 @@ _parse_lit(ttl_lit_t *tt, const char *bp, const char *const ep)
 }
 
 static const char*
+_parse_num(ttl_lit_t *tt, const char *bp, const char *const ep)
+{
+	const char *const sp = bp;
+
+	/* allow sign */
+	bp += *sp == '-';
+	bp += *sp == '+';
+	/* digits */
+	for (; bp < ep && (unsigned char)(*bp ^ '0') < 10U; bp++);
+	if (UNLIKELY(bp >= ep)) {
+		/* rollback */
+		return sp;
+	} else if (UNLIKELY(bp <= sp + (*sp == '-' || *sp == '+') &&
+			    *bp != '.')) {
+		/* nope, that's not a number nor +/-.xxx */
+		return NULL;
+	}
+	/* allow one dot */
+	bp += *bp == '.';
+	/* more digits */
+	for (; bp < ep && (unsigned char)(*bp ^ '0') < 10U; bp++);
+
+	if (UNLIKELY(bp >= ep)) {
+		/* rollback */
+		return sp;
+	} else if (UNLIKELY(bp <= sp + (*sp == '-' || *sp == '+') + (sp[1U] == '.'))) {
+		/* nope, that's just +/-. */
+		return NULL;
+	}
+	tt->val = (ttl_str_t){sp, bp - sp};
+	tt->typ = (ttl_iri_t){NULL};
+	tt->lng = (ttl_str_t){NULL};
+	return bp < ep ? bp : sp;
+}
+
+static const char*
 _parse_dir(ttl_iri_t *t, const char *bp, const char *const ep)
 {
 	static const char prfx[] = "@prefix";
@@ -464,6 +500,11 @@ parse_trans(ttl_term_t *tt, const char **tp, const char *bp, const char *const e
 		break;
 	case '.':
 		r = TRANS_DOT;
+		/* if followed by digit could be a literal */
+		if (UNLIKELY(ep > bp + 1U &&
+			     (unsigned char)(bp[1U] ^ '0') < 10U)) {
+			goto num;
+		}
 		bp++;
 		break;
 	case ',':
@@ -503,6 +544,28 @@ parse_trans(ttl_term_t *tt, const char **tp, const char *bp, const char *const e
 	case '\'':
 		/* literal */
 		if (UNLIKELY((bp = _parse_lit(&tt->lit, sp, ep)) == NULL)) {
+			return TRANS_ERR;
+		} else if (UNLIKELY(bp == sp || bp >= ep)) {
+			goto rollback;
+		}
+		tt->typ = TTL_TYP_LIT;
+		r = TRANS_LIT;
+		break;
+	case '+':
+	case '-':
+	case '0':
+	case '1':
+	case '2':
+	case '3':
+	case '4':
+	case '5':
+	case '6':
+	case '7':
+	case '8':
+	case '9':
+	num:
+		/* numeric literal */
+		if (UNLIKELY((bp = _parse_num(&tt->lit, sp, ep)) == NULL)) {
 			return TRANS_ERR;
 		} else if (UNLIKELY(bp == sp || bp >= ep)) {
 			goto rollback;
