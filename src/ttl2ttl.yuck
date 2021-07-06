@@ -4,3 +4,6 @@ Convert FILEs to turtle.  FILEs can be ttl/trig/ntriples/nquads.
 If omitted, read from stdin.
 
   -x, --expand      Expand all IRIs.
+  --sortable        One statement per line.
+                    Use tr(1) to influence sorting of @prefix, e.g.
+                    tr '@' '\a' | sort | tr '\a' '@'

@@ -49,6 +49,7 @@
 #include "nifty.h"
 
 static unsigned int iri_xpnd = 1U;
+static unsigned int sortable = 0U;
 
 struct _writer_s {
 	/* codec */
@@ -222,16 +223,18 @@ decl(void *usr, ttl_iri_t decl)
 	struct _writer_s *w = usr;
 
 	ttl_decl_put(w->d, decl.pre, decl.val);
-	fwrite("@prefix ", 1, 8U, stdout);
-	fwrite(decl.pre.str, 1, decl.pre.len, stdout);
-	fputc(':', stdout);
-	fputc(' ', stdout);
-	fputc('<', stdout);
-	fwrite(decl.val.str, 1, decl.val.len, stdout);
-	fputc('>', stdout);
-	fputc(' ', stdout);
-	fputc('.', stdout);
-	fputc('\n', stdout);
+	if (!iri_xpnd) {
+		fwrite("@prefix ", 1, 8U, stdout);
+		fwrite(decl.pre.str, 1, decl.pre.len, stdout);
+		fputc(':', stdout);
+		fputc(' ', stdout);
+		fputc('<', stdout);
+		fwrite(decl.val.str, 1, decl.val.len, stdout);
+		fputc('>', stdout);
+		fputc(' ', stdout);
+		fputc('.', stdout);
+		fputc('\n', stdout);
+	}
 	return;
 }
 
@@ -280,6 +283,30 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 	return;
 }
 
+static void
+stnt(void *usr, const ttl_term_t stmt[static 4U])
+{
+	struct _writer_s *w = usr;
+
+	if (UNLIKELY(!stmt[TTL_SUBJ].typ)) {
+		;
+	} else {
+		if (last[TTL_SUBJ].typ) {
+			fputc('.', stdout);
+			fputc('\n', stdout);
+		}
+		fwrite_term(w, stmt[TTL_SUBJ], stdout);
+		fputc('\t', stdout);
+		fwrite_term(w, stmt[TTL_PRED], stdout);
+		fputc('\t', stdout);
+		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fputc(' ', stdout);
+		fputc('.', stdout);
+		fputc('\n', stdout);
+	}
+	return;
+}
+
 static struct _writer_s
 make_writer(void)
 {
@@ -317,6 +344,7 @@ Error: cannot instantiate ttl parser");
 	}
 
 	iri_xpnd = argi->expand_flag;
+	sortable = argi->sortable_flag;
 
 	w = make_writer();
 	if (w.c == NULL || w.d == NULL) {
@@ -336,7 +364,7 @@ Error: cannot instantiate buffer for previous statement");
 		}
 	}
 
-	p->hdl = (ttl_handler_t){decl, stmt};
+	p->hdl = (ttl_handler_t){decl, !sortable ? stmt : stnt};
 	p->usr = &w;
 
 	for (size_t i = 0U; i < argi->nargs + (!argi->nargs); i++) {
@@ -361,7 +389,7 @@ Error: cannot parse `%s'", fn);
 		}
 		/* give us closure */
 		close(fd);
-		stmt(&w, (ttl_term_t[4U]){});
+		p->hdl.stmt(&w, (ttl_term_t[4U]){});
 	}
 
 out:
