@@ -48,8 +48,7 @@
 #include "ttl.h"
 #include "nifty.h"
 
-static unsigned int esc_utf8;
-static unsigned int esc_ctrl = 1U;
+static unsigned int iri_xpnd = 1U;
 
 struct _writer_s {
 	/* codec */
@@ -83,9 +82,10 @@ fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 	if (UNLIKELY(!t.pre.len && t.val.len == 1U && *t.val.str == 'a')) {
 		fputc('a', stdout);
 	} else if (t.pre.str) {
-		ttl_str_t x = ttl_decl_get(w->d, t.pre);
+		ttl_str_t x;
 
-		if (x.len) {
+		if (UNLIKELY(iri_xpnd) &&
+		    LIKELY((x = ttl_decl_get(w->d, t.pre)).len)) {
 			fputc('<', stdout);
 			fwrite(x.str, 1, x.len, stream);
 			fwrite(t.val.str, 1, t.val.len, stream);
@@ -108,9 +108,10 @@ fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 {
 	size_t i = 1U;
 
+	i -= t.val.str[0 - i] <= ' ';
 	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
 	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
-	
+
 	fwrite(t.val.str - i, 1, i, stream);
 	fwrite(t.val.str, 1, t.val.len, stream);
 	fwrite(t.val.str - i, 1, i, stream);
@@ -221,6 +222,16 @@ decl(void *usr, ttl_iri_t decl)
 	struct _writer_s *w = usr;
 
 	ttl_decl_put(w->d, decl.pre, decl.val);
+	fwrite("@prefix ", 1, 8U, stdout);
+	fwrite(decl.pre.str, 1, decl.pre.len, stdout);
+	fputc(':', stdout);
+	fputc(' ', stdout);
+	fputc('<', stdout);
+	fwrite(decl.val.str, 1, decl.val.len, stdout);
+	fputc('>', stdout);
+	fputc(' ', stdout);
+	fputc('.', stdout);
+	fputc('\n', stdout);
 	return;
 }
 
@@ -241,6 +252,7 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 			fputc('.', stdout);
 			fputc('\n', stdout);
 		}
+		fputc('\n', stdout);
 		fwrite_term(w, stmt[TTL_SUBJ], stdout);
 		fputc('\n', stdout);
 		fputc('\t', stdout);
@@ -303,6 +315,8 @@ Error: cannot instantiate ttl parser");
 		rc = 1;
 		goto out;
 	}
+
+	iri_xpnd = argi->expand_flag;
 
 	w = make_writer();
 	if (w.c == NULL || w.d == NULL) {

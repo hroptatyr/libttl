@@ -2,3 +2,5 @@ Usage: ttl2ttl [FILE]...
 
 Convert FILEs to turtle.  FILEs can be ttl/trig/ntriples/nquads.
 If omitted, read from stdin.
+
+  -x, --expand      Expand all IRIs.
