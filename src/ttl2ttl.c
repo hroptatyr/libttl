@@ -242,11 +242,12 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 			fputc('\n', stdout);
 		}
 		fwrite_term(w, stmt[TTL_SUBJ], stdout);
+		fputc('\n', stdout);
 		fputc('\t', stdout);
 		fwrite_term(w, stmt[TTL_PRED], stdout);
 		fputc('\t', stdout);
 		fwrite_term(w, stmt[TTL_OBJ], stdout);
-		fputc('\t', stdout);
+		fputc(' ', stdout);
 		last[TTL_SUBJ] = clon(w, stmt[TTL_SUBJ], TTL_SUBJ);
 		last[TTL_PRED] = (ttl_term_t){};
 	} else if (!termeqp(w, stmt[TTL_PRED], last[TTL_PRED])) {
@@ -256,15 +257,13 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 		fwrite_term(w, stmt[TTL_PRED], stdout);
 		fputc('\t', stdout);
 		fwrite_term(w, stmt[TTL_OBJ], stdout);
-		fputc('\t', stdout);
+		fputc(' ', stdout);
 		last[TTL_PRED] = clon(w, stmt[TTL_PRED], TTL_PRED);
 	} else {
 		fputc(',', stdout);
-		fputc('\n', stdout);
-		fputc('\t', stdout);
-		fputc('\t', stdout);
+		fputc(' ', stdout);
 		fwrite_term(w, stmt[TTL_OBJ], stdout);
-		fputc('\t', stdout);
+		fputc(' ', stdout);
 	}
 	return;
 }
