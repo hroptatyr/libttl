@@ -155,6 +155,9 @@ irieqp(struct _writer_s *w, ttl_iri_t i1, ttl_iri_t i2)
 	if (i1.pre.len) {
 		ttl_str_t x = ttl_decl_get(w->d, i1.pre);
 
+		if (UNLIKELY(!x.len)) {
+			x = (ttl_str_t){i1.pre.str, i1.pre.len};
+		}
 		return x.len <= i2.val.len &&
 			!memcmp(x.str, i2.val.str, x.len) &&
 			x.len + i1.val.len == i2.val.len &&
@@ -182,14 +185,13 @@ static ttl_term_t last[2U];
 static ttl_iri_t
 clon_iri(struct _writer_s *w, ttl_iri_t i, unsigned int which)
 {
-	size_t ilen = 0U;
+	size_t ilen = i.val.len;
 	ttl_str_t x = {.len = 0U};
 
 	if (i.pre.len) {
 		x = ttl_decl_get(w->d, i.pre);
+		ilen += x.len ?: i.pre.len;
 	}
-	ilen += x.len;
-	ilen += i.val.len;
 
 	if (UNLIKELY(ilen > zbuf[which])) {
 		size_t nu;
@@ -197,8 +199,10 @@ clon_iri(struct _writer_s *w, ttl_iri_t i, unsigned int which)
 		lbuf[which] = realloc(lbuf[which], countof(last) * nu);
 		zbuf[which] = nu;
 	}
-	if (i.pre.len) {
+	if (x.len) {
 		memcpy(lbuf[which], x.str, x.len);
+	} else if (i.pre.len) {
+		memcpy(lbuf[which], i.pre.str, x.len = i.pre.len);
 	}
 	memcpy(lbuf[which] + x.len, i.val.str, i.val.len);
 	return (ttl_iri_t){{lbuf[which], ilen}};
