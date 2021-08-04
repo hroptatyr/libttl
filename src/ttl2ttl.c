@@ -49,6 +49,7 @@
 #include "nifty.h"
 
 static unsigned int iri_xpnd = 1U;
+static unsigned int iri_xgen = 1U;
 static unsigned int sortable = 0U;
 
 struct _writer_s {
@@ -87,6 +88,14 @@ fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 
 		if (UNLIKELY(iri_xpnd) &&
 		    LIKELY((x = ttl_decl_get(w->d, t.pre)).len)) {
+			fputc('<', stdout);
+			fwrite(x.str, 1, x.len, stream);
+			fwrite(t.val.str, 1, t.val.len, stream);
+			fputc('>', stdout);
+		} else if (UNLIKELY(iri_xgen) &&
+			   LIKELY((x = ttl_decl_get(w->d, t.pre)).len) &&
+			   t.pre.str[0U] == 'n' && t.pre.str[1U] == 's' &&
+			   t.pre.str[2U] >= '1' && t.pre.str[2U] <= '9') {
 			fputc('<', stdout);
 			fwrite(x.str, 1, x.len, stream);
 			fwrite(t.val.str, 1, t.val.len, stream);
@@ -352,6 +361,7 @@ Error: cannot instantiate ttl parser");
 	}
 
 	iri_xpnd = argi->expand_flag;
+	iri_xgen = argi->expand_generic_flag;
 	sortable = argi->sortable_flag;
 
 	w = make_writer();
