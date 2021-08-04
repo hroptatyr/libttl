@@ -240,6 +240,7 @@ decl(void *usr, ttl_iri_t decl)
 		if (last[TTL_SUBJ].typ) {
 			fputc('.', stdout);
 			fputc('\n', stdout);
+			last[TTL_SUBJ] = (ttl_term_t){};
 		}
 		fwrite("@prefix ", 1, 8U, stdout);
 		fwrite(decl.pre.str, 1, decl.pre.len, stdout);
