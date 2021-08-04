@@ -228,6 +228,10 @@ decl(void *usr, ttl_iri_t decl)
 
 	ttl_decl_put(w->d, decl.pre, decl.val);
 	if (!iri_xpnd) {
+		if (last[TTL_SUBJ].typ) {
+			fputc('.', stdout);
+			fputc('\n', stdout);
+		}
 		fwrite("@prefix ", 1, 8U, stdout);
 		fwrite(decl.pre.str, 1, decl.pre.len, stdout);
 		fputc(':', stdout);
