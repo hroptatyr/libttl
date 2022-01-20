@@ -186,10 +186,19 @@ termeqp(struct _writer_s *w, ttl_term_t t1, ttl_term_t t2)
 		irieqp(w, t1.iri, t2.iri);
 }
 
+static bool
+blaeqp(struct _writer_s *w, ttl_term_t t1, ttl_term_t t2)
+{
+	(void)w;
+	return t1.typ == t2.typ &&
+		t1.typ == TTL_TYP_BLA &&
+		t1.bla.h[0U] == t2.bla.h[0U];
+}
+
 
 static size_t zbuf[2U];
 static char *lbuf[2U];
-static ttl_term_t last[2U];
+static ttl_term_t last[3U];
 
 static ttl_iri_t
 clon_iri(struct _writer_s *w, ttl_iri_t i, unsigned int which)
@@ -205,7 +214,7 @@ clon_iri(struct _writer_s *w, ttl_iri_t i, unsigned int which)
 	if (UNLIKELY(ilen > zbuf[which])) {
 		size_t nu;
 		for (nu = 2U * zbuf[which]; nu <= ilen; nu *= 2U);
-		lbuf[which] = realloc(lbuf[which], countof(last) * nu);
+		lbuf[which] = realloc(lbuf[which], countof(lbuf) * nu);
 		zbuf[which] = nu;
 	}
 	if (x.len) {
@@ -308,17 +317,35 @@ stnt(void *usr, const ttl_stmt_t *stmt, size_t where)
 
 	if (UNLIKELY(stmt == NULL)) {
 		;
+	} else if (UNLIKELY(blaeqp(w, stmt[where].obj, last[TTL_OBJ]) &&
+			    last[TTL_OBJ].bla.h[1U] >= where + 1U)) {
+		/* we're finished printing the blank node, go deeper */
+		last[2U] = stmt[where].subj;
+		last[2U].bla.h[1U] = where;
 	} else {
 		if (last[TTL_SUBJ].typ) {
-			fputc('.', stdout);
-			fputc('\n', stdout);
+			goto dot;
 		}
-		fwrite_term(w, stmt[where].subj, stdout);
+		fwrite_term(w, stmt[0U].subj, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[where].pred, stdout);
+		fwrite_term(w, stmt[0U].pred, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[where].obj, stdout);
+		fwrite_term(w, stmt[0U].obj, stdout);
+		for (size_t i = 1U; i <= where; i++) {
+			fputc(' ', stdout);
+			fputc('.', stdout);
+			fwrite_term(w, stmt[i].subj, stdout);
+			fputc('\t', stdout);
+			fwrite_term(w, stmt[i].pred, stdout);
+			fputc('\t', stdout);
+			fwrite_term(w, stmt[i].obj, stdout);
+		}
+		if (UNLIKELY(where > last[TTL_OBJ].bla.h[1U])) {
+			last[2U] = stmt[where].subj;
+			last[2U].bla.h[1U] = where;
+		}
 		fputc(' ', stdout);
+	dot:
 		fputc('.', stdout);
 		fputc('\n', stdout);
 	}
@@ -373,7 +400,7 @@ Error: cannot instantiate nt writer");
 		goto out;
 	}
 	/* instantiate last buffer */
-	for (size_t i = 0U; i < countof(last); i++) {
+	for (size_t i = 0U; i < countof(lbuf); i++) {
 		lbuf[i] = malloc(zbuf[i] = 128U);
 		if (lbuf[i] == NULL) {
 			error("\
@@ -413,7 +440,7 @@ Error: cannot parse `%s'", fn);
 
 out:
 	ttl_free_parser(p);
-	for (size_t i = 0U; i < countof(last); i++) {
+	for (size_t i = 0U; i < countof(lbuf); i++) {
 		free(lbuf[i]);
 	}
 	free_writer(w);
