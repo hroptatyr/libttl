@@ -88,19 +88,19 @@ fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 		ttl_str_t x = ttl_decl_get(w->d, t.pre);
 
 		if (x.len) {
-			fputc('<', stdout);
+			fputc('<', stream);
 			fwrite(x.str, 1, x.len, stream);
 			fwrite(t.val.str, 1, t.val.len, stream);
-			fputc('>', stdout);
+			fputc('>', stream);
 		} else {
 			fwrite(t.pre.str, 1, t.pre.len, stream);
 			fputc(':', stream);
 			fwrite(t.val.str, 1, t.val.len, stream);
 		}
 	} else {
-		fputc('<', stdout);
+		fputc('<', stream);
 		fwrite(t.val.str, 1, t.val.len, stream);
-		fputc('>', stdout);
+		fputc('>', stream);
 	}
 	return;
 }
@@ -141,7 +141,7 @@ fwrite_term(struct _writer_s *w, ttl_term_t t, void *stream)
 		fwrite_lit(w, t.lit, stream);
 		break;
 	case TTL_TYP_BLA:
-		fprintf(stdout, "_:b%016lx", t.bla.h[0U]);
+		fprintf(stream, "_:b%016lx", t.bla.h[0U]);
 		break;
 	default:
 		break;
