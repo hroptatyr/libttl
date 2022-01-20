@@ -82,33 +82,33 @@ static void
 fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
 {
 	if (UNLIKELY(!t.pre.len && t.val.len == 1U && *t.val.str == 'a')) {
-		fputc('a', stdout);
+		fputc('a', stream);
 	} else if (t.pre.str) {
 		ttl_str_t x;
 
 		if (UNLIKELY(iri_xpnd) &&
 		    LIKELY((x = ttl_decl_get(w->d, t.pre)).len)) {
-			fputc('<', stdout);
+			fputc('<', stream);
 			fwrite(x.str, 1, x.len, stream);
 			fwrite(t.val.str, 1, t.val.len, stream);
-			fputc('>', stdout);
+			fputc('>', stream);
 		} else if (UNLIKELY(iri_xgen) &&
 			   LIKELY((x = ttl_decl_get(w->d, t.pre)).len) &&
 			   t.pre.str[0U] == 'n' && t.pre.str[1U] == 's' &&
 			   t.pre.str[2U] >= '1' && t.pre.str[2U] <= '9') {
-			fputc('<', stdout);
+			fputc('<', stream);
 			fwrite(x.str, 1, x.len, stream);
 			fwrite(t.val.str, 1, t.val.len, stream);
-			fputc('>', stdout);
+			fputc('>', stream);
 		} else {
 			fwrite(t.pre.str, 1, t.pre.len, stream);
 			fputc(':', stream);
 			fwrite(t.val.str, 1, t.val.len, stream);
 		}
 	} else {
-		fputc('<', stdout);
+		fputc('<', stream);
 		fwrite(t.val.str, 1, t.val.len, stream);
-		fputc('>', stdout);
+		fputc('>', stream);
 	}
 	return;
 }
@@ -150,7 +150,7 @@ fwrite_term(struct _writer_s *w, ttl_term_t t, void *stream)
 		fwrite_lit(w, t.lit, stream);
 		break;
 	case TTL_TYP_BLA:
-		fprintf(stdout, "_:b%016lx", t.bla.h[0U]);
+		fprintf(stream, "_:b%016lx", t.bla.h[0U]);
 		break;
 	default:
 		break;
