@@ -351,28 +351,28 @@ fwrite_term(const struct _world_s *w, ttl_term_t t, FILE *stream)
 }
 
 static size_t
-swrite_stmt(char **tgt, const struct _world_s *w, const ttl_term_t s[static 3U])
+swrite_stmt(char **tgt, const struct _world_s *w, ttl_stmt_t s)
 {
 	size_t n, m;
 
 	n = 0U;
 	goto subj;
 subj:
-	for (m = _swrite_term(n, w, s[TTL_SUBJ]); !m;) {
+	for (m = _swrite_term(n, w, s.subj); !m;) {
 		return 0U;
 	}
 	n += m, sbuf[n++] = ' ';
 	goto pred;
 
 pred:
-	for (m = _swrite_term(n, w, s[TTL_PRED]); !m;) {
+	for (m = _swrite_term(n, w, s.pred); !m;) {
 		return 0U;
 	}
 	n += m, sbuf[n++] = ' ';
 	goto obj;
 
 obj:
-	for (m = _swrite_term(n, w, s[TTL_OBJ]); !m;) {
+	for (m = _swrite_term(n, w, s.obj); !m;) {
 		return 0U;
 	}
 	n += m, sbuf[n++] = ' ';
@@ -526,19 +526,19 @@ fdecl(void *usr, ttl_iri_t decl)
 }
 
 static void
-flts(void *usr, const ttl_term_t stmt[static 4U])
+flts(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	struct _world_s *w = usr;
 
-	if (UNLIKELY(stmt[TTL_SUBJ].typ != TTL_TYP_IRI)) {
+	if (UNLIKELY(stmt[where].subj.typ != TTL_TYP_IRI)) {
 		return;
 	}
 
-	with (ttl_str_t x = ttl_rwrite_iri(stmt[TTL_SUBJ].iri, w->f)) {
+	with (ttl_str_t x = ttl_rwrite_iri(stmt[where].subj.iri, w->f)) {
 		const size_t i = add_term(x);
 
-		add_beef(i, ttl_repack(stmt[TTL_PRED]));
-		add_beef(i, ttl_repack(stmt[TTL_OBJ]));
+		add_beef(i, ttl_repack(stmt[where].pred));
+		add_beef(i, ttl_repack(stmt[where].obj));
 	}
 	return;
 }
@@ -566,7 +566,7 @@ decl(void *usr, ttl_iri_t decl)
 }
 
 static void
-stmt(void *usr, const ttl_term_t stmt[static 4U])
+stmt(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 #define PRFX	"http://data.ga-group.nl/meta/mmh3/"
 	static unsigned char prfx[80U] = PRFX;
@@ -576,14 +576,14 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 	size_t n;
 	char *s;
 
-	if (UNLIKELY(stmt[TTL_PRED].typ != TTL_TYP_IRI)) {
+	if (UNLIKELY(stmt[where].pred.typ != TTL_TYP_IRI)) {
 		/* huh? */
 		return;
 	} else if (!nterms) {
 		goto yep;
 	}
 	/* otherwise try and find him */
-	with (ttl_str_t x = ttl_rwrite_iri(stmt[TTL_PRED].iri, w->d)) {
+	with (ttl_str_t x = ttl_rwrite_iri(stmt[where].pred.iri, w->d)) {
 		if ((termidx = find_term(x)) >= nterms) {
 			/* not found */
 			return;
@@ -606,7 +606,7 @@ yep:
 		}
 		fputc('\n', stdout);
 	}
-	n = swrite_stmt(&s, w, stmt);
+	n = swrite_stmt(&s, w, stmt[where]);
 	prfn += mmh3(prfx + prfn, sizeof(prfx) - prfn, s, n);
 	fputc('<', stdout);
 	fwrite(prfx, 1, prfn, stdout);
@@ -614,15 +614,15 @@ yep:
 	fputc('\n', stdout);
 
 	fputs("\trdf:subject\t", stdout);
-	fwrite_term(w, stmt[TTL_SUBJ], stdout);
+	fwrite_term(w, stmt[where].subj, stdout);
 	fputs(" ;\n", stdout);
 
 	fputs("\trdf:predicate\t", stdout);
-	fwrite_term(w, stmt[TTL_PRED], stdout);
+	fwrite_term(w, stmt[where].pred, stdout);
 	fputs(" ;\n", stdout);
 
 	fputs("\trdf:object\t", stdout);
-	fwrite_term(w, stmt[TTL_OBJ], stdout);
+	fwrite_term(w, stmt[where].obj, stdout);
 	fputs(" ;\n", stdout);
 
 	if (nterms) {

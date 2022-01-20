@@ -85,11 +85,21 @@ typedef struct {
 	};
 } ttl_term_t;
 
+typedef union {
+	ttl_term_t quad[4U];
+	struct {
+		ttl_term_t subj;
+		ttl_term_t pred;
+		ttl_term_t obj;
+		ttl_term_t grph;
+	};
+} ttl_stmt_t;
+
 
 /* parser stuff */
 typedef struct {
 	void(*decl)(void *usr, ttl_iri_t decl);
-	void(*stmt)(void *usr, const ttl_term_t stmt[static 4U]);
+	void(*stmt)(void *usr, const ttl_stmt_t *stmt, size_t where);
 } ttl_handler_t;
 
 typedef struct {

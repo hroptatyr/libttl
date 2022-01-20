@@ -227,21 +227,21 @@ decl(void *usr, ttl_iri_t decl)
 }
 
 static void
-stmt(void *usr, const ttl_term_t stmt[static 4U])
+stmt(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	static size_t ns;
 	static ttl_term_t grph;
 	struct _writer_s *w = usr;
 
-	if (UNLIKELY(!stmt[TTL_SUBJ].typ) && LIKELY(ns)) {
+	if (UNLIKELY(stmt == NULL) && LIKELY(ns)) {
 		/* last statement */
 		puts("};");
 		ns = 0U;
-	} else if (!termeqp(w, stmt[TTL_GRPH], grph) || !(ns % nstmt)) {
+	} else if (!termeqp(w, stmt[where].grph, grph) || !(ns % nstmt)) {
 		if (LIKELY(ns)) {
 			puts("};");
 		}
-		grph = clon_grph(w, stmt[TTL_GRPH]);
+		grph = clon_grph(w, stmt[where].grph);
 		fputs("SPARQL", stdout);
 		if (grph.typ) {
 			fputs(" WITH ", stdout);
@@ -253,11 +253,11 @@ stmt(void *usr, const ttl_term_t stmt[static 4U])
 	} else {
 	wr:
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_SUBJ], stdout);
+		fwrite_term(w, stmt[where].subj, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_PRED], stdout);
+		fwrite_term(w, stmt[where].pred, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fwrite_term(w, stmt[where].obj, stdout);
 		fputc('\t', stdout);
 		fputc('.', stdout);
 		fputc('\n', stdout);
@@ -358,7 +358,7 @@ Error: cannot parse `%s'", fn);
 		}
 		/* give us closure */
 		close(fd);
-		stmt(&w, (ttl_term_t[4U]){});
+		stmt(&w, NULL, 0U);
 	}
 
 out:

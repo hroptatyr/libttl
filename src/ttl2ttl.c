@@ -257,67 +257,67 @@ decl(void *usr, ttl_iri_t decl)
 }
 
 static void
-stmt(void *usr, const ttl_term_t stmt[static 4U])
+stmt(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	struct _writer_s *w = usr;
 
-	if (UNLIKELY(!stmt[TTL_SUBJ].typ)) {
+	if (UNLIKELY(stmt == NULL)) {
 		/* last statement */
 		if (last[TTL_SUBJ].typ) {
 			fputc('.', stdout);
 			fputc('\n', stdout);
 		}
 		last[TTL_SUBJ] = (ttl_term_t){};
-	} else if (!termeqp(w, stmt[TTL_SUBJ], last[TTL_SUBJ])) {
+	} else if (!termeqp(w, stmt[where].subj, last[TTL_SUBJ])) {
 		if (last[TTL_SUBJ].typ) {
 			fputc('.', stdout);
 			fputc('\n', stdout);
 		}
 		fputc('\n', stdout);
-		fwrite_term(w, stmt[TTL_SUBJ], stdout);
+		fwrite_term(w, stmt[where].subj, stdout);
 		fputc('\n', stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_PRED], stdout);
+		fwrite_term(w, stmt[where].pred, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fwrite_term(w, stmt[where].obj, stdout);
 		fputc(' ', stdout);
-		last[TTL_SUBJ] = clon(w, stmt[TTL_SUBJ], TTL_SUBJ);
+		last[TTL_SUBJ] = clon(w, stmt[where].subj, TTL_SUBJ);
 		last[TTL_PRED] = (ttl_term_t){};
-	} else if (!termeqp(w, stmt[TTL_PRED], last[TTL_PRED])) {
+	} else if (!termeqp(w, stmt[where].pred, last[TTL_PRED])) {
 		fputc(';', stdout);
 		fputc('\n', stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_PRED], stdout);
+		fwrite_term(w, stmt[where].pred, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fwrite_term(w, stmt[where].obj, stdout);
 		fputc(' ', stdout);
-		last[TTL_PRED] = clon(w, stmt[TTL_PRED], TTL_PRED);
+		last[TTL_PRED] = clon(w, stmt[where].pred, TTL_PRED);
 	} else {
 		fputc(',', stdout);
 		fputc(' ', stdout);
-		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fwrite_term(w, stmt[where].obj, stdout);
 		fputc(' ', stdout);
 	}
 	return;
 }
 
 static void
-stnt(void *usr, const ttl_term_t stmt[static 4U])
+stnt(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	struct _writer_s *w = usr;
 
-	if (UNLIKELY(!stmt[TTL_SUBJ].typ)) {
+	if (UNLIKELY(stmt == NULL)) {
 		;
 	} else {
 		if (last[TTL_SUBJ].typ) {
 			fputc('.', stdout);
 			fputc('\n', stdout);
 		}
-		fwrite_term(w, stmt[TTL_SUBJ], stdout);
+		fwrite_term(w, stmt[where].subj, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_PRED], stdout);
+		fwrite_term(w, stmt[where].pred, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fwrite_term(w, stmt[where].obj, stdout);
 		fputc(' ', stdout);
 		fputc('.', stdout);
 		fputc('\n', stdout);
@@ -408,7 +408,7 @@ Error: cannot parse `%s'", fn);
 		}
 		/* give us closure */
 		close(fd);
-		p->hdl.stmt(&w, (ttl_term_t[4U]){});
+		p->hdl.stmt(&w, NULL, 0U);
 	}
 
 out:
