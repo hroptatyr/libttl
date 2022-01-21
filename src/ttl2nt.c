@@ -158,18 +158,18 @@ decl(void *usr, ttl_iri_t decl)
 }
 
 static void
-stmt(void *usr, const ttl_term_t stmt[static 4U])
+stmt(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	struct _writer_s *w = usr;
 
-	fwrite_term(w, stmt[TTL_SUBJ], stdout);
+	fwrite_term(w, stmt[where].subj, stdout);
 	fputc('\t', stdout);
-	fwrite_term(w, stmt[TTL_PRED], stdout);
+	fwrite_term(w, stmt[where].pred, stdout);
 	fputc('\t', stdout);
-	fwrite_term(w, stmt[TTL_OBJ], stdout);
-	if (stmt[TTL_GRPH].typ) {
+	fwrite_term(w, stmt[where].obj, stdout);
+	if (stmt[where].grph.typ) {
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_GRPH], stdout);
+		fwrite_term(w, stmt[where].grph, stdout);
 	}
 	fputc('\t', stdout);
 	fputc('.', stdout);

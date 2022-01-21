@@ -182,14 +182,23 @@ static bool
 termeqp(struct _writer_s *w, ttl_term_t t1, ttl_term_t t2)
 {
 	return t1.typ == t2.typ &&
-		t1.typ == TTL_TYP_IRI &&
-		irieqp(w, t1.iri, t2.iri);
+		(t1.typ == TTL_TYP_IRI && irieqp(w, t1.iri, t2.iri) ||
+		 t1.typ == TTL_TYP_BLA && t1.bla.h[0U] == t2.bla.h[0U]);
+}
+
+static bool
+tblaeqp(struct _writer_s *w, ttl_term_t t1, ttl_term_t t2)
+{
+	(void)w;
+	return t1.typ == t2.typ &&
+		t1.typ == TTL_TYP_BLA &&
+		t1.bla.h[0U] == t2.bla.h[0U];
 }
 
 
 static size_t zbuf[2U];
 static char *lbuf[2U];
-static ttl_term_t last[2U];
+static ttl_term_t last[3U];
 
 static ttl_iri_t
 clon_iri(struct _writer_s *w, ttl_iri_t i, unsigned int which)
@@ -205,7 +214,7 @@ clon_iri(struct _writer_s *w, ttl_iri_t i, unsigned int which)
 	if (UNLIKELY(ilen > zbuf[which])) {
 		size_t nu;
 		for (nu = 2U * zbuf[which]; nu <= ilen; nu *= 2U);
-		lbuf[which] = realloc(lbuf[which], countof(last) * nu);
+		lbuf[which] = realloc(lbuf[which], countof(lbuf) * nu);
 		zbuf[which] = nu;
 	}
 	if (x.len) {
@@ -223,10 +232,18 @@ clon(struct _writer_s *w, ttl_term_t t, unsigned int which)
 	switch (t.typ) {
 	case TTL_TYP_IRI:
 		return (ttl_term_t){TTL_TYP_IRI, clon_iri(w, t.iri, which)};
+	case TTL_TYP_BLA:
+		return t;
 	default:
 		break;
 	}
 	return (ttl_term_t){};
+}
+
+static ttl_term_t
+cbla(ttl_term_t t, size_t where)
+{
+	return (ttl_term_t){TTL_TYP_BLA, .bla = {t.bla.h[0U], where}};
 }
 
 
@@ -257,68 +274,190 @@ decl(void *usr, ttl_iri_t decl)
 }
 
 static void
-stmt(void *usr, const ttl_term_t stmt[static 4U])
+stmt_old(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	struct _writer_s *w = usr;
 
-	if (UNLIKELY(!stmt[TTL_SUBJ].typ)) {
+	if (UNLIKELY(stmt == NULL)) {
 		/* last statement */
 		if (last[TTL_SUBJ].typ) {
 			fputc('.', stdout);
 			fputc('\n', stdout);
 		}
 		last[TTL_SUBJ] = (ttl_term_t){};
-	} else if (!termeqp(w, stmt[TTL_SUBJ], last[TTL_SUBJ])) {
+	} else if (!termeqp(w, stmt[where].subj, last[TTL_SUBJ])) {
 		if (last[TTL_SUBJ].typ) {
 			fputc('.', stdout);
 			fputc('\n', stdout);
 		}
 		fputc('\n', stdout);
-		fwrite_term(w, stmt[TTL_SUBJ], stdout);
+		fwrite_term(w, stmt[where].subj, stdout);
 		fputc('\n', stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_PRED], stdout);
+		fwrite_term(w, stmt[where].pred, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fwrite_term(w, stmt[where].obj, stdout);
 		fputc(' ', stdout);
-		last[TTL_SUBJ] = clon(w, stmt[TTL_SUBJ], TTL_SUBJ);
+		last[TTL_SUBJ] = clon(w, stmt[where].subj, TTL_SUBJ);
 		last[TTL_PRED] = (ttl_term_t){};
-	} else if (!termeqp(w, stmt[TTL_PRED], last[TTL_PRED])) {
+	} else if (!termeqp(w, stmt[where].pred, last[TTL_PRED])) {
 		fputc(';', stdout);
 		fputc('\n', stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_PRED], stdout);
+		fwrite_term(w, stmt[where].pred, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fwrite_term(w, stmt[where].obj, stdout);
 		fputc(' ', stdout);
-		last[TTL_PRED] = clon(w, stmt[TTL_PRED], TTL_PRED);
+		last[TTL_PRED] = clon(w, stmt[where].pred, TTL_PRED);
 	} else {
 		fputc(',', stdout);
 		fputc(' ', stdout);
-		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		fwrite_term(w, stmt[where].obj, stdout);
 		fputc(' ', stdout);
 	}
 	return;
 }
 
 static void
-stnt(void *usr, const ttl_term_t stmt[static 4U])
+stmt_x(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	struct _writer_s *w = usr;
+	static size_t j;
 
-	if (UNLIKELY(!stmt[TTL_SUBJ].typ)) {
-		;
-	} else {
+	if (UNLIKELY(j > where)) {
+		for (; j > where; j--) {
+			fputc(';', stdout);
+			fputc('\n', stdout);
+			for (size_t i = 0U; i < j; i++) {
+				fputc('\t', stdout);
+			}
+			fputc(']', stdout);
+			fputc(' ', stdout);
+		}
+		last[TTL_SUBJ] = clon(w, stmt[j].subj, TTL_SUBJ);
+		last[TTL_PRED] = clon(w, stmt[j].pred, TTL_PRED);
+		last[TTL_OBJ] = (ttl_term_t){};
+		if (LIKELY(stmt != NULL)) {
+			return;
+		}
+	}
+	if (UNLIKELY(stmt == NULL)) {
+		/* last statement */
 		if (last[TTL_SUBJ].typ) {
 			fputc('.', stdout);
 			fputc('\n', stdout);
 		}
-		fwrite_term(w, stmt[TTL_SUBJ], stdout);
+		last[TTL_SUBJ] = (ttl_term_t){};
+	} else if (!termeqp(w, stmt[j].subj, last[TTL_SUBJ])) {
+		if (last[TTL_SUBJ].typ) {
+			fputc('.', stdout);
+			fputc('\n', stdout);
+		}
+		fputc('\n', stdout);
+		fwrite_term(w, stmt[j].subj, stdout);
+		fputc('\n', stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_PRED], stdout);
+		for (size_t i = 0U; i < j; i++) {
+			fputc('\t', stdout);
+		}
+		fwrite_term(w, stmt[j].pred, stdout);
 		fputc('\t', stdout);
-		fwrite_term(w, stmt[TTL_OBJ], stdout);
+		if (LIKELY(stmt[j].obj.typ != TTL_TYP_BLA)) {
+			fwrite_term(w, stmt[j].obj, stdout);
+			fputc(' ', stdout);
+		} else {
+			goto blank;
+		}
+		last[TTL_SUBJ] = clon(w, stmt[j].subj, TTL_SUBJ);
+		last[TTL_PRED] = (ttl_term_t){};
+	} else if (!termeqp(w, stmt[j].pred, last[TTL_PRED])) {
+		fputc(';', stdout);
+		fputc('\n', stdout);
+		fputc('\t', stdout);
+		for (size_t i = 0U; i < j; i++) {
+			fputc('\t', stdout);
+		}
+		fwrite_term(w, stmt[j].pred, stdout);
+		fputc('\t', stdout);
+		if (LIKELY(stmt[j].obj.typ != TTL_TYP_BLA)) {
+			fwrite_term(w, stmt[j].obj, stdout);
+			fputc(' ', stdout);
+		} else {
+			goto blank;
+		}
+		last[TTL_PRED] = clon(w, stmt[j].pred, TTL_PRED);
+		last[TTL_OBJ] = cbla(stmt[j].obj, where);
+	} else {
+		fputc(',', stdout);
 		fputc(' ', stdout);
+		if (LIKELY(stmt[j].obj.typ != TTL_TYP_BLA)) {
+			fwrite_term(w, stmt[j].obj, stdout);
+			fputc(' ', stdout);
+		} else {
+			goto blank;
+		}
+	}
+	return;
+blank:
+	fputc('[', stdout);
+	fputc('\n', stdout);
+	last[TTL_OBJ] = cbla(stmt[j].obj, where);
+	/* ascend */
+	j++;
+	fputc('\t', stdout);
+	for (size_t i = 0U; i < j; i++) {
+		fputc('\t', stdout);
+	}
+	fwrite_term(w, stmt[j].pred, stdout);
+	fputc('\t', stdout);
+	if (LIKELY(stmt[j].obj.typ != TTL_TYP_BLA)) {
+		fwrite_term(w, stmt[j].obj, stdout);
+		fputc(' ', stdout);
+	} else {
+		goto blank;
+	}
+	last[TTL_SUBJ] = clon(w, stmt[j].subj, TTL_SUBJ);
+	last[TTL_PRED] = clon(w, stmt[j].pred, TTL_PRED);
+	last[TTL_OBJ] = cbla(stmt[j].obj, where);
+	return;
+}
+
+static void
+stnt(void *usr, const ttl_stmt_t *stmt, size_t where)
+{
+	struct _writer_s *w = usr;
+
+	if (UNLIKELY(stmt == NULL)) {
+		;
+	} else if (UNLIKELY(tblaeqp(w, stmt[where].obj, last[TTL_OBJ]) &&
+			    last[TTL_OBJ].bla.h[1U] >= where + 1U)) {
+		/* we're finished printing the blank node, go deeper */
+		last[2U] = stmt[where].subj;
+		last[2U].bla.h[1U] = where;
+	} else {
+		if (last[TTL_SUBJ].typ) {
+			goto dot;
+		}
+		fwrite_term(w, stmt[0U].subj, stdout);
+		fputc('\t', stdout);
+		fwrite_term(w, stmt[0U].pred, stdout);
+		fputc('\t', stdout);
+		fwrite_term(w, stmt[0U].obj, stdout);
+		for (size_t i = 1U; i <= where; i++) {
+			fputc(' ', stdout);
+			fputc('.', stdout);
+			fwrite_term(w, stmt[i].subj, stdout);
+			fputc('\t', stdout);
+			fwrite_term(w, stmt[i].pred, stdout);
+			fputc('\t', stdout);
+			fwrite_term(w, stmt[i].obj, stdout);
+		}
+		if (UNLIKELY(where > last[TTL_OBJ].bla.h[1U])) {
+			last[2U] = stmt[where].subj;
+			last[2U].bla.h[1U] = where;
+		}
+		fputc(' ', stdout);
+	dot:
 		fputc('.', stdout);
 		fputc('\n', stdout);
 	}
@@ -373,7 +512,7 @@ Error: cannot instantiate nt writer");
 		goto out;
 	}
 	/* instantiate last buffer */
-	for (size_t i = 0U; i < countof(last); i++) {
+	for (size_t i = 0U; i < countof(lbuf); i++) {
 		lbuf[i] = malloc(zbuf[i] = 128U);
 		if (lbuf[i] == NULL) {
 			error("\
@@ -383,7 +522,7 @@ Error: cannot instantiate buffer for previous statement");
 		}
 	}
 
-	p->hdl = (ttl_handler_t){decl, !sortable ? stmt : stnt};
+	p->hdl = (ttl_handler_t){decl, !sortable ? stmt_x : stnt};
 	p->usr = &w;
 
 	for (size_t i = 0U; i < argi->nargs + (!argi->nargs); i++) {
@@ -408,12 +547,12 @@ Error: cannot parse `%s'", fn);
 		}
 		/* give us closure */
 		close(fd);
-		p->hdl.stmt(&w, (ttl_term_t[4U]){});
+		p->hdl.stmt(&w, NULL, 0U);
 	}
 
 out:
 	ttl_free_parser(p);
-	for (size_t i = 0U; i < countof(last); i++) {
+	for (size_t i = 0U; i < countof(lbuf); i++) {
 		free(lbuf[i]);
 	}
 	free_writer(w);

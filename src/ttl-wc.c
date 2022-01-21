@@ -69,10 +69,10 @@ error(const char *fmt, ...)
 
 
 static void
-stmt(void *UNUSED(usr), const ttl_term_t stmt[static 4U])
+stmt(void *UNUSED(usr), const ttl_stmt_t *stmt, size_t where)
 {
 	ns++;
-	(void)stmt;
+	(void)stmt, (void)where;
 	return;
 }
 

@@ -123,12 +123,10 @@ struct _parser_s {
 	/* state stack */
 	size_t S;
 	size_t Z;
-	struct {
-		/* current state */
-		state_t state;
-		/* statement, room for a quad */
-		ttl_term_t stmt[4U];
-	} *s;
+	/* current state */
+	state_t *t;
+	/* statement, room for a quad */
+	ttl_stmt_t *s;
 };
 
 static inline __attribute__((pure, const)) size_t
@@ -757,21 +755,21 @@ _sbrkmv(struct _parser_s *pp)
 	/* save everything in the bottom of the stack */
 	for (size_t j = 0U; j < pp->S; j++) {
 		for (size_t i = TTL_SUBJ; i <= TTL_GRPH; i++) {
-			tot += termlen(pp->s[j].stmt[i]);
+			tot += termlen(pp->s[j].quad[i]);
 		}
 	}
-	if (pp->s[pp->S].state < STATE_G) {
-		for (size_t i = 0; i < pp->s[pp->S].state; i++) {
-			tot += termlen(pp->s[pp->S].stmt[i]);
+	if (pp->t[pp->S] < STATE_G) {
+		for (size_t i = 0; i < pp->t[pp->S]; i++) {
+			tot += termlen(pp->s[pp->S].quad[i]);
 		}
-	} else if (pp->s[pp->S].state < STATE_BS) {
-		tot += termlen(pp->s[pp->S].stmt[TTL_GRPH]);
-		for (size_t i = 0; i < pp->s[pp->S].state - STATE_G; i++) {
-			tot += termlen(pp->s[pp->S].stmt[i]);
+	} else if (pp->t[pp->S] < STATE_BS) {
+		tot += termlen(pp->s[pp->S].grph);
+		for (size_t i = 0; i < pp->t[pp->S] - STATE_G; i++) {
+			tot += termlen(pp->s[pp->S].quad[i]);
 		}
 	} else {
-		for (size_t i = 0; i <= pp->s[pp->S].state - STATE_BS; i++) {
-			tot += termlen(pp->s[pp->S].stmt[i]);
+		for (size_t i = 0; i <= pp->t[pp->S] - STATE_BS; i++) {
+			tot += termlen(pp->s[pp->S].quad[i]);
 		}
 	}
 
@@ -782,21 +780,21 @@ _sbrkmv(struct _parser_s *pp)
 
 	for (size_t j = tot = 0U; j < pp->S; j++) {
 		for (size_t i = TTL_SUBJ; i <= TTL_GRPH; i++) {
-			tot += termcpy(pp->x.b + tot, &pp->s[j].stmt[i]);
+			tot += termcpy(pp->x.b + tot, &pp->s[j].quad[i]);
 		}
 	}
-	if (pp->s[pp->S].state < STATE_G) {
-		for (size_t i = 0; i < pp->s[pp->S].state; i++) {
-			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[i]);
+	if (pp->t[pp->S] < STATE_G) {
+		for (size_t i = 0; i < pp->t[pp->S]; i++) {
+			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].quad[i]);
 		}
-	} else if (pp->s[pp->S].state < STATE_BS) {
-		tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[TTL_GRPH]);
-		for (size_t i = 0; i < pp->s[pp->S].state - STATE_G; i++) {
-			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[i]);
+	} else if (pp->t[pp->S] < STATE_BS) {
+		tot += termcpy(pp->x.b + tot, &pp->s[pp->S].quad[TTL_GRPH]);
+		for (size_t i = 0; i < pp->t[pp->S] - STATE_G; i++) {
+			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].quad[i]);
 		}
 	} else {
-		for (size_t i = 0; i <= pp->s[pp->S].state - STATE_BS; i++) {
-			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].stmt[i]);
+		for (size_t i = 0; i <= pp->t[pp->S] - STATE_BS; i++) {
+			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].quad[i]);
 		}
 	}
 	return tot;
@@ -837,9 +835,11 @@ ttl_make_parser(void)
 	r->p.n = r->x.n = 0U;
 	r->b = 1U;
 	r->S = 0U;
-	r->s = malloc((r->Z = 4U) * sizeof(*r->s));
-	r->s[r->S].state = STATE_0;
-	r->s[r->S].stmt[TTL_GRPH] = (ttl_term_t){TTL_TYP_UNK};
+	r->Z = 4U;
+	r->t = malloc(r->Z * sizeof(*r->t));
+	r->s = malloc(r->Z * sizeof(*r->s));
+	r->t[r->S] = STATE_0;
+	r->s[r->S].quad[TTL_GRPH] = (ttl_term_t){TTL_TYP_UNK};
 	return &r->public;
 }
 
@@ -848,6 +848,7 @@ ttl_free_parser(ttl_parser_t *p)
 {
 	struct _parser_s *pp = (void*)p;
 
+	free(pp->t);
 	free(pp->s);
 	free(pp->p.b);
 	free(pp->x.b);
@@ -901,7 +902,7 @@ more:
 		}
 		return 0;
 	case TRANS_DIR:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 		case STATE_0:
 			/* 0 + DIR -> 0 */
 			break;
@@ -916,7 +917,7 @@ more:
 		}
 		break;
 	case TRANS_IRI:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 			state_t b;
 		case STATE_0:
 			/* 0 + IRI -> S */
@@ -944,87 +945,88 @@ more:
 			b--;
 			goto bang_iri;
 		bang_iri:
-			pp->s[pp->S].stmt[pp->s[pp->S].state++ - b] = tt;
+			pp->s[pp->S].quad[pp->t[pp->S]++ - b] = tt;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_LIT:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 		case STATE_P:
 			/* P + LIT -> O */
 		case STATE_GP:
 			/* GP + LIT -> GO */
 		case STATE_BP:
 			/* BP + LIT -> BO */
-			pp->s[pp->S].stmt[TTL_OBJ] = tt;
-			pp->s[pp->S].state++;
+			pp->s[pp->S].quad[TTL_OBJ] = tt;
+			pp->t[pp->S]++;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_BRO:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 		case STATE_S:
 			/* S + { -> G */
-			pp->s[pp->S].stmt[TTL_GRPH] =
-				pp->s[pp->S].stmt[TTL_SUBJ];
-			pp->s[pp->S].state = STATE_G;
+			pp->s[pp->S].quad[TTL_GRPH] =
+				pp->s[pp->S].quad[TTL_SUBJ];
+			pp->t[pp->S] = STATE_G;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_BRC:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 		case STATE_G:
 			/* G + } -> 0 */
 		case STATE_GO:
 			/* GO + } -> 0 */
-			pp->s[pp->S].stmt[TTL_GRPH] = (ttl_term_t){};
-			pp->s[pp->S].state = STATE_0;
+			pp->s[pp->S].quad[TTL_GRPH] = (ttl_term_t){};
+			pp->t[pp->S] = STATE_0;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_SQO:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 		case STATE_P:
 			/* P + [ -> BS */
 		case STATE_GP:
 			/* GP + [ -> BS */
 		case STATE_BP:
 			/* BP + [ -> BS */
-			pp->s[pp->S].stmt[TTL_OBJ] =
+			pp->s[pp->S].quad[TTL_OBJ] =
 				(ttl_term_t){TTL_TYP_BLA, .bla = {{pp->b++}}};
-			pp->s[pp->S].state++;
+			pp->t[pp->S]++;
 			/* push */
 			if (UNLIKELY(++pp->S >= pp->Z)) {
 				pp->Z *= 2U;
+				pp->t = realloc(pp->t, pp->Z * sizeof(*pp->t));
 				pp->s = realloc(pp->s, pp->Z * sizeof(*pp->s));
 			}
-			pp->s[pp->S].stmt[TTL_SUBJ] =
-				pp->s[pp->S - 1U].stmt[TTL_OBJ];
-			pp->s[pp->S].stmt[TTL_GRPH] =
-				pp->s[pp->S - 1U].stmt[TTL_GRPH];
-			pp->s[pp->S].state = STATE_BS;
+			pp->s[pp->S].quad[TTL_SUBJ] =
+				pp->s[pp->S - 1U].quad[TTL_OBJ];
+			pp->s[pp->S].quad[TTL_GRPH] =
+				pp->s[pp->S - 1U].quad[TTL_GRPH];
+			pp->t[pp->S] = STATE_BS;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_SQC:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 		case STATE_BO:
 			/* BO + ] -> pop */
 
 			/* issue statement, as ] implies TRANS_DOT */
 			if (pp->public.hdl.stmt) {
 				pp->public.hdl.stmt(
-					pp->public.usr, pp->s[pp->S].stmt);
+					pp->public.usr, pp->s, pp->S);
 			}
 			/* do the popping */
 		case STATE_BS:
@@ -1036,54 +1038,54 @@ more:
 		}
 		break;
 	case TRANS_DOT:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 		case STATE_O:
 			/* O + . -> 0 */
 		case STATE_Q:
 			/* Q + . -> 0 */
-			pp->s[pp->S].state = STATE_0;
+			pp->t[pp->S] = STATE_0;
 			goto stmt;
 		case STATE_GO:
 			/* GO + . -> G */
-			pp->s[pp->S].state = STATE_G;
+			pp->t[pp->S] = STATE_G;
 			goto stmt;
 
 		case STATE_S:
 			/* O ; . -> 0 */
-			pp->s[pp->S].state = STATE_0;
+			pp->t[pp->S] = STATE_0;
 			break;
 		case STATE_GS:
 			/* GO ; . -> G */
-			pp->s[pp->S].state = STATE_G;
+			pp->t[pp->S] = STATE_G;
 			break;
 		default:
 			return -1;
 		}
 		break;
 	case TRANS_COM:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 		case STATE_O:
 			/* O + , -> P */
 		case STATE_GO:
 			/* GO + , -> GP */
 		case STATE_BO:
 			/* BO + , -> BP */
-			pp->s[pp->S].state--;
+			pp->t[pp->S]--;
 			break;
 		default:
 			return -1;
 		}
 		goto stmt;
 	case TRANS_SEM:
-		switch (pp->s[pp->S].state) {
+		switch (pp->t[pp->S]) {
 		case STATE_O:
 			/* O  + ; -> S */
 		case STATE_GO:
 			/* GO + ; -> GS */
 		case STATE_BO:
 			/* BO + ; -> BS */
-			pp->s[pp->S].state--;
-			pp->s[pp->S].state--;
+			pp->t[pp->S]--;
+			pp->t[pp->S]--;
 			break;
 		default:
 			return -1;
@@ -1095,10 +1097,10 @@ more:
 
 	stmt:
 		if (pp->public.hdl.stmt) {
-			pp->public.hdl.stmt(pp->public.usr, pp->s[pp->S].stmt);
+			pp->public.hdl.stmt(pp->public.usr, pp->s, pp->S);
 		}
-		if (!pp->s[pp->S].state) {
-			pp->s[pp->S].stmt[TTL_GRPH] = (ttl_term_t){};
+		if (!pp->t[pp->S]) {
+			pp->s[pp->S].quad[TTL_GRPH] = (ttl_term_t){};
 		}
 		break;		
 	default:
