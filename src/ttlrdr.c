@@ -389,6 +389,40 @@ _parse_num(ttl_lit_t *tt, const char *bp, const char *const ep)
 }
 
 static const char*
+_parse_bool(ttl_lit_t *tt, const char *bp, const char *const ep)
+{
+	const char *const sp = bp;
+
+	switch (*bp) {
+	case 'f':
+		if (UNLIKELY(ep - bp < 5U ||
+			     bp[1U] != 'a' || bp[2U] != 'l' ||
+			     bp[3U] != 's' || bp[4U] != 'e')) {
+			/* rollback */
+			return sp;
+		}
+		bp += 5U;
+		break;
+	case 't':
+		if (UNLIKELY(ep - bp < 4U ||
+			     bp[1U] != 'r' || bp[2U] != 'u' ||
+			     bp[3U] != 'e')) {
+			/* rollback */
+			return sp;
+		}
+		bp += 4U;
+		break;
+	default:
+		/* rollback */
+		return sp;
+	}
+	tt->val = (ttl_str_t){sp, bp - sp};
+	tt->typ = (ttl_iri_t){NULL};
+	tt->lng = (ttl_str_t){NULL};
+	return bp;
+}
+
+static const char*
 _parse_dir(ttl_iri_t *t, const char *bp, const char *const ep)
 {
 	static const char prfx[] = "@prefix";
@@ -564,6 +598,17 @@ parse_trans(ttl_term_t *tt, const char **tp, const char *bp, const char *const e
 	num:
 		/* numeric literal */
 		if (UNLIKELY((bp = _parse_num(&tt->lit, sp, ep)) == NULL)) {
+			return TRANS_ERR;
+		} else if (UNLIKELY(bp == sp || bp >= ep)) {
+			goto rollback;
+		}
+		tt->typ = TTL_TYP_LIT;
+		r = TRANS_LIT;
+		break;
+	case 'f':
+	case 't':
+		/* boolean literal */
+		if (UNLIKELY((bp = _parse_bool(&tt->lit, sp, ep)) == NULL)) {
 			return TRANS_ERR;
 		} else if (UNLIKELY(bp == sp || bp >= ep)) {
 			goto rollback;
