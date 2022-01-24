@@ -118,6 +118,10 @@ fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 {
 	size_t i = 1U;
 
+	if (UNLIKELY(sortable)) {
+		t.val = ttl_enquot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
+	}
+
 	i -= t.val.str[0 - i] <= ' ';
 	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
 	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
