@@ -611,7 +611,7 @@ parse_trans(ttl_term_t *tt, const char **tp, const char *bp, const char *const e
 		if (UNLIKELY((bp = _parse_bool(&tt->lit, sp, ep)) == NULL)) {
 			return TRANS_ERR;
 		} else if (UNLIKELY(bp == sp || bp >= ep)) {
-			goto rollback;
+			goto DEFAULT;
 		}
 		tt->typ = TTL_TYP_LIT;
 		r = TRANS_LIT;
@@ -633,6 +633,7 @@ parse_trans(ttl_term_t *tt, const char **tp, const char *bp, const char *const e
 		r = TRANS_NOP;
 		break;
 	default:
+	DEFAULT:
 		/* something */
 		if (UNLIKELY((bp = parse_qname(&tt->iri, sp, ep)) == NULL)) {
 			return TRANS_ERR;
