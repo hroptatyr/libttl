@@ -32,8 +32,16 @@ The user facing bits of the parser are set up with 2 handlers:
             ...
     }
     
-    static void statement_handler(void *usr, ttl_term_t stmt[static 4U])
+    static void statement_handler(void *usr, const ttl_stmt_t *stmt, size_t i)
     {
+            /* do something with subjects */
+            stmt[i].subj;
+            /* do something with predicates */
+            stmt[i].pred;
+            /* do something with objects */
+            stmt[i].obj;
+            /* do something with the graph, might be (ttl_term_t){} */
+            stmt[i].grph;
             ...
     }
     
