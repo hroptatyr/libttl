@@ -187,6 +187,8 @@ parse_qname(ttl_iri_t *tt, const char *bp, const char *const ep)
 	xp = bp;
 	/* parse local part */
 	for (; bp < ep && (unsigned char)*bp > ' '; bp++);
+	/* make sure we don't end on triple punctuation */
+	bp -= bp > xp && (bp[-1] == '.' || bp[-1] == ';' || bp[-1] == ',');
 	if (UNLIKELY(bp >= ep)) {
 		/* rollback */
 		return sp;
