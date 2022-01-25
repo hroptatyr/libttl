@@ -106,16 +106,22 @@ ttl_str_t
 ttl_dequot_str(ttl_codec_t *cc, ttl_str_t str, unsigned int what)
 {
 	size_t k = cc->x.n;
+	size_t b;
 
 	if (UNLIKELY(k + str.len >= cc->x.z)) {
 		while ((cc->x.z *= 2U) < k + str.len);
 		cc->x.b = realloc(cc->x.b, cc->x.z);
 	}
 	if (!what || memchr(str.str, '\\', str.len) == NULL) {
-		memcpy(cc->x.b + cc->x.n, str.str, str.len);
-		k += str.len;
-		goto bang;
+		return str;
 	}
+	/* copy no quotes, or single quotes or triple quotes */
+	b = 1U;
+	b -= str.str[0 - b] <= ' ';
+	b += str.str[0 - b] == str.str[0 - b - 1];
+	b += str.str[0 - b] == str.str[0 - b - 1];
+	memcpy(cc->x.b + k, str.str - b, b);
+	k += b;
 	for (size_t i = 0U; i < str.len; i++, k++) {
 		/* utf8 seq ranges */
 		uint_fast32_t x = 0U;
@@ -225,11 +231,10 @@ ttl_dequot_str(ttl_codec_t *cc, ttl_str_t str, unsigned int what)
 			break;
 		}
 	}
-bang:
 	/* return pointer to x buffer */
-	str.str = cc->x.b + cc->x.n;
+	str.str = cc->x.b + cc->x.n + b;
 	/* new length */
-	str.len = k - cc->x.n;
+	str.len = k - (cc->x.n + b);
 	/* up the use counter */
 	cc->x.n = k;
 	return str;
