@@ -118,15 +118,16 @@ fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 {
 	size_t i = 1U;
 
-	if (UNLIKELY(sortable)) {
-		t.val = ttl_enquot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
-	} else {
-		t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
-	}
-
+	/* count quotedness */
 	i -= t.val.str[0 - i] <= ' ';
 	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
 	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
+
+	if (UNLIKELY(sortable)) {
+		t.val = ttl_enquot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
+	} else if (i >= 3U) {
+		t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
+	}
 
 	fwrite(t.val.str - i, 1, i, stream);
 	fwrite(t.val.str, 1, t.val.len, stream);
