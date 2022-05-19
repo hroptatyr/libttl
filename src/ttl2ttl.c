@@ -51,6 +51,7 @@
 static unsigned int iri_xpnd = 1U;
 static unsigned int iri_xgen = 1U;
 static unsigned int sortable = 0U;
+static unsigned int blanksqu = 0U;
 
 struct _writer_s {
 	/* codec */
@@ -149,7 +150,7 @@ fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 static void
 fwrite_bla(struct _writer_s *UNUSED(w), ttl_bla_t t, void *stream)
 {
-	fprintf(stream, "_:b%016lx", t.h[0U]);
+	fprintf(stream, " _:b%016lx", -t.h[0U]);
 	return;
 }
 
@@ -207,6 +208,41 @@ tblaeqp(struct _writer_s *w, ttl_term_t t1, ttl_term_t t2)
 	return t1.typ == t2.typ &&
 		t1.typ == TTL_TYP_BLA &&
 		t1.bla.h[0U] == t2.bla.h[0U];
+}
+
+static ttl_term_t
+try_cast(ttl_term_t t)
+{
+/* take IRI or BLA and try a cast to BLA */
+	switch (t.typ) {
+	case TTL_TYP_IRI:
+		if (t.iri.pre.len != 1U) {
+			;
+		} else if (*t.iri.pre.str != '_') {
+			;
+		} else if (UNLIKELY(!t.iri.val.len)) {
+			;
+		} else {
+			/* looking good */
+			char *ep = NULL;
+			const char *val = t.iri.val.str;
+			uint64_t u;
+
+			/* skip over potential blank node prefix */
+			val += (*t.iri.val.str == 'b' || *t.iri.val.str == 'B');
+			if (UNLIKELY(!(u = strtoul(val, &ep, 16)))) {
+				;
+			} else if (t.iri.val.str + t.iri.val.len != ep) {
+				;
+			} else {
+				/* we've done it */
+				return (ttl_term_t){TTL_TYP_BLA, .bla = {u}};
+			}
+		}
+	default:
+		break;
+	}
+	return t;
 }
 
 
@@ -294,6 +330,7 @@ decl(void *usr, ttl_iri_t decl)
 	return;
 }
 
+#if 0
 static void
 stmt_old(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
@@ -338,6 +375,7 @@ stmt_old(void *usr, const ttl_stmt_t *stmt, size_t where)
 	}
 	return;
 }
+#endif
 
 static void
 stmt_x(void *usr, const ttl_stmt_t *stmt, size_t where)
@@ -449,39 +487,21 @@ stnt(void *usr, const ttl_stmt_t *stmt, size_t where)
 	struct _writer_s *w = usr;
 
 	if (UNLIKELY(stmt == NULL)) {
-		;
-	} else if (UNLIKELY(tblaeqp(w, stmt[where].obj, last[TTL_OBJ]) &&
-			    last[TTL_OBJ].bla.h[1U] >= where + 1U)) {
-		/* we're finished printing the blank node, go deeper */
-		last[2U] = stmt[where].subj;
-		last[2U].bla.h[1U] = where;
-	} else {
-		if (last[TTL_SUBJ].typ) {
-			goto dot;
-		}
-		fwrite_term(w, stmt[0U].subj, stdout);
-		fputc('\t', stdout);
-		fwrite_term(w, stmt[0U].pred, stdout);
-		fputc('\t', stdout);
-		fwrite_term(w, stmt[0U].obj, stdout);
-		for (size_t i = 1U; i <= where; i++) {
-			fputc(' ', stdout);
-			fputc('.', stdout);
-			fwrite_term(w, stmt[i].subj, stdout);
-			fputc('\t', stdout);
-			fwrite_term(w, stmt[i].pred, stdout);
-			fputc('\t', stdout);
-			fwrite_term(w, stmt[i].obj, stdout);
-		}
-		if (UNLIKELY(where > last[TTL_OBJ].bla.h[1U])) {
-			last[2U] = stmt[where].subj;
-			last[2U].bla.h[1U] = where;
-		}
-		fputc(' ', stdout);
-	dot:
+		return;
+	}
+
+	if (last[TTL_SUBJ].typ) {
 		fputc('.', stdout);
 		fputc('\n', stdout);
 	}
+	fwrite_term(w, try_cast(stmt[where].subj), stdout);
+	fputc('\t', stdout);
+	fwrite_term(w, stmt[where].pred, stdout);
+	fputc('\t', stdout);
+	fwrite_term(w, try_cast(stmt[where].obj), stdout);
+	fputc(' ', stdout);
+	fputc('.', stdout);
+	fputc('\n', stdout);
 	return;
 }
 
@@ -524,6 +544,7 @@ Error: cannot instantiate ttl parser");
 	iri_xpnd = argi->expand_flag;
 	iri_xgen = argi->expand_generic_flag;
 	sortable = argi->sortable_flag;
+	blanksqu = argi->square_blanks_flag;
 
 	w = make_writer();
 	if (w.c == NULL || w.d == NULL) {
