@@ -147,6 +147,13 @@ fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 }
 
 static void
+fwrite_bla(struct _writer_s *UNUSED(w), ttl_bla_t t, void *stream)
+{
+	fprintf(stream, "_:b%016lx", t.h[0U]);
+	return;
+}
+
+static void
 fwrite_term(struct _writer_s *w, ttl_term_t t, void *stream)
 {
 	switch (t.typ) {
@@ -157,7 +164,7 @@ fwrite_term(struct _writer_s *w, ttl_term_t t, void *stream)
 		fwrite_lit(w, t.lit, stream);
 		break;
 	case TTL_TYP_BLA:
-		fprintf(stream, "_:b%016lx", t.bla.h[0U]);
+		fwrite_bla(w, t.bla, stream);
 		break;
 	default:
 		break;
@@ -251,6 +258,13 @@ static ttl_term_t
 cbla(ttl_term_t t, size_t where)
 {
 	return (ttl_term_t){TTL_TYP_BLA, .bla = {t.bla.h[0U], where}};
+}
+
+static bool
+blap(ttl_term_t t)
+{
+	return t.typ == TTL_TYP_BLA ||
+		t.typ == TTL_TYP_IRI && t.iri.pre.len == 1U && *t.iri.pre.str == '_';
 }
 
 
