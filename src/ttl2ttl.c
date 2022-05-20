@@ -58,6 +58,8 @@ struct _writer_s {
 	ttl_codec_t *c;
 	/* prefix buffer */
 	ttl_decl_t *d;
+	/* for diversions */
+	FILE *stream;
 };
 
 
@@ -202,12 +204,10 @@ termeqp(struct _writer_s *w, ttl_term_t t1, ttl_term_t t2)
 }
 
 static bool
-tblaeqp(struct _writer_s *w, ttl_term_t t1, ttl_term_t t2)
+blap(ttl_term_t t)
 {
-	(void)w;
-	return t1.typ == t2.typ &&
-		t1.typ == TTL_TYP_BLA &&
-		t1.bla.h[0U] == t2.bla.h[0U];
+	return t.typ == TTL_TYP_BLA ||
+		t.typ == TTL_TYP_IRI && t.iri.pre.len == 1U && *t.iri.pre.str == '_';
 }
 
 static ttl_term_t
@@ -230,7 +230,7 @@ try_cast(ttl_term_t t)
 
 			/* skip over potential blank node prefix */
 			val += (*t.iri.val.str == 'b' || *t.iri.val.str == 'B');
-			if (UNLIKELY(!(u = strtoul(val, &ep, 16)))) {
+			if (UNLIKELY(!(u = strtoull(val, &ep, 16)))) {
 				;
 			} else if (t.iri.val.str + t.iri.val.len != ep) {
 				;
@@ -243,6 +243,54 @@ try_cast(ttl_term_t t)
 		break;
 	}
 	return t;
+}
+
+
+/* ring buffer */
+typedef size_t ridx_t;
+static uint64_t hring[64U];
+static char *sring[countof(hring)];
+static size_t zring[countof(hring)];
+static FILE *Fring[countof(hring)];
+
+static ridx_t
+ring_get(uint64_t h)
+{
+/* use h == 0 to obtain an empty slot */
+	for (size_t i = 0U; i < countof(hring); i++) {
+		if (hring[i] == h) {
+			return i;
+		}
+	}
+	return (ridx_t)-1;
+}
+
+static ridx_t
+ring_put(uint64_t h)
+{
+	for (size_t i = 0U; i < countof(hring); i++) {
+		if (!hring[i]) {
+			hring[i] = h;
+			Fring[i] = open_memstream(sring + i, zring + i);
+			return i;
+		}
+	}
+	return (ridx_t)-1;
+}
+
+static const char*
+ring_rem(ridx_t k)
+{
+	hring[k] = 0U;
+	fclose(Fring[k]);
+	Fring[k] = NULL;
+	return sring[k];
+}
+
+static FILE*
+ring_str(ridx_t k)
+{
+	return Fring[k];
 }
 
 
@@ -296,13 +344,6 @@ cbla(ttl_term_t t, size_t where)
 	return (ttl_term_t){TTL_TYP_BLA, .bla = {t.bla.h[0U], where}};
 }
 
-static bool
-blap(ttl_term_t t)
-{
-	return t.typ == TTL_TYP_BLA ||
-		t.typ == TTL_TYP_IRI && t.iri.pre.len == 1U && *t.iri.pre.str == '_';
-}
-
 
 static void
 decl(void *usr, ttl_iri_t decl)
@@ -311,7 +352,7 @@ decl(void *usr, ttl_iri_t decl)
 
 	ttl_decl_put(w->d, decl.pre, decl.val);
 	if (!iri_xpnd) {
-		if (last[TTL_SUBJ].typ) {
+		if (last[TTL_SUBJ].typ && w->stream == stdout) {
 			fputc('.', stdout);
 			fputc('\n', stdout);
 			last[TTL_SUBJ] = (ttl_term_t){};
@@ -330,9 +371,9 @@ decl(void *usr, ttl_iri_t decl)
 	return;
 }
 
-#if 0
+#if 1
 static void
-stmt_old(void *usr, const ttl_stmt_t *stmt, size_t where)
+stmt(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	struct _writer_s *w = usr;
 
@@ -482,6 +523,95 @@ blank:
 }
 
 static void
+fwrite_term_or_ring(struct _writer_s *w, ttl_term_t t, void *stream)
+{
+	ttl_term_t s;
+
+	switch ((s = try_cast(t)).typ) {
+		ridx_t k;
+
+	case TTL_TYP_BLA:
+		if ((k = ring_get(s.bla.h[0U])) != (ridx_t)-1) {
+			FILE *blastr = ring_str(k);
+			fputc('\n', blastr);
+			fputc(']', blastr);
+			fputs(ring_rem(k), stream);
+			break;
+		}
+	default:
+		fwrite_term(w, t, stream);
+		break;
+	}
+	return;
+}
+
+static void
+stmt_y(void *usr, const ttl_stmt_t *stmt, size_t where)
+{
+/* we're in bufferer mode */
+	struct _writer_s *w = usr;
+
+	if (UNLIKELY(stmt == NULL)) {
+		/* last statement */
+		if (last[TTL_SUBJ].typ) {
+			fputc('.', w->stream);
+			fputc('\n', w->stream);
+		}
+		last[TTL_SUBJ] = (ttl_term_t){};
+	} else if (!termeqp(w, stmt[where].subj, last[TTL_SUBJ])) {
+		ttl_term_t s;
+
+		if (last[TTL_SUBJ].typ && w->stream == stdout) {
+			fputc('.', w->stream);
+			fputc('\n', w->stream);
+		} else if (last[TTL_SUBJ].typ) {
+			/* undivert */
+			fputc(';', w->stream);
+			w->stream = stdout;
+		}
+
+		if ((s = try_cast(stmt[where].subj)).typ == TTL_TYP_BLA) {
+			ridx_t k;
+
+			/* divert */
+			if ((k = ring_get(s.bla.h[0U])) == (ridx_t)-1) {
+				k = ring_put(s.bla.h[0U]);
+				w->stream = ring_str(k);
+				fputc('[', w->stream);
+			} else {
+				w->stream = ring_str(k);
+			}
+		} else {
+			fputc('\n', w->stream);
+			fwrite_term(w, stmt[where].subj, w->stream);
+		}
+		fputc('\n', w->stream);
+		fputc('\t', w->stream);
+		fwrite_term(w, stmt[where].pred, w->stream);
+		fputc('\t', w->stream);
+		fwrite_term_or_ring(w, stmt[where].obj, w->stream);
+		fputc(' ', w->stream);
+		last[TTL_SUBJ] = clon(w, stmt[where].subj, TTL_SUBJ);
+		last[TTL_PRED] = (ttl_term_t){};
+	} else if (!termeqp(w, stmt[where].pred, last[TTL_PRED])) {
+		fputc(';', w->stream);
+		fputc('\n', w->stream);
+		fputc('\t', w->stream);
+		fwrite_term(w, stmt[where].pred, w->stream);
+		fputc('\t', w->stream);
+		fwrite_term_or_ring(w, stmt[where].obj, w->stream);
+		fputc(' ', w->stream);
+		last[TTL_PRED] = clon(w, stmt[where].pred, TTL_PRED);
+	} else {
+		fputc(',', w->stream);
+		fputc(' ', w->stream);
+		fwrite_term_or_ring(w, stmt[where].obj, w->stream);
+		fputc(' ', w->stream);
+	}
+	return;
+}
+
+static void
 stnt(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	struct _writer_s *w = usr;
@@ -564,8 +694,14 @@ Error: cannot instantiate buffer for previous statement");
 		}
 	}
 
-	p->hdl = (ttl_handler_t){decl, !sortable ? stmt_x : stnt};
+	p->hdl = (ttl_handler_t){
+		decl, !sortable
+		? !blanksqu
+		? stmt
+		: stmt_y
+		: stnt};
 	p->usr = &w;
+	w.stream = stdout;
 
 	for (size_t i = 0U; i < argi->nargs + (!argi->nargs); i++) {
 		const char *fn = argi->args[i];
