@@ -10,3 +10,4 @@ If omitted, read from stdin.
   --sortable            One statement per line.
                         Use tr(1) to influence sorting of @prefix, e.g.
                         tr '@' '\a' | sort | tr '\a' '@'
+  --no-frills           Do not use syntactic sugar.

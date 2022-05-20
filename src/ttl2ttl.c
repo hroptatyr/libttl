@@ -51,7 +51,6 @@
 static unsigned int iri_xpnd = 1U;
 static unsigned int iri_xgen = 1U;
 static unsigned int sortable = 0U;
-static unsigned int blanksqu = 0U;
 
 struct _writer_s {
 	/* codec */
@@ -201,13 +200,6 @@ termeqp(struct _writer_s *w, ttl_term_t t1, ttl_term_t t2)
 	return t1.typ == t2.typ &&
 		(t1.typ == TTL_TYP_IRI && irieqp(w, t1.iri, t2.iri) ||
 		 t1.typ == TTL_TYP_BLA && t1.bla.h[0U] == t2.bla.h[0U]);
-}
-
-static bool
-blap(ttl_term_t t)
-{
-	return t.typ == TTL_TYP_BLA ||
-		t.typ == TTL_TYP_IRI && t.iri.pre.len == 1U && *t.iri.pre.str == '_';
 }
 
 static ttl_term_t
@@ -535,7 +527,12 @@ fwrite_term_or_ring(struct _writer_s *w, ttl_term_t t, void *stream)
 			FILE *blastr = ring_str(k);
 			fputc('\n', blastr);
 			fputc(']', blastr);
-			fputs(ring_rem(k), stream);
+			for (const char *sp = ring_rem(k); *sp; sp++) {
+				fputc(*sp, stream);
+				if (*sp == '\n') {
+					fputc('\t', stream);
+				}
+			}
 			break;
 		}
 	default:
@@ -674,7 +671,6 @@ Error: cannot instantiate ttl parser");
 	iri_xpnd = argi->expand_flag;
 	iri_xgen = argi->expand_generic_flag;
 	sortable = argi->sortable_flag;
-	blanksqu = argi->square_blanks_flag;
 
 	w = make_writer();
 	if (w.c == NULL || w.d == NULL) {
@@ -696,8 +692,10 @@ Error: cannot instantiate buffer for previous statement");
 
 	p->hdl = (ttl_handler_t){
 		decl, !sortable
-		? !blanksqu
+		? !argi->square_blanks_flag
+		? argi->no_frills_flag
 		? stmt
+		: stmt_x
 		: stmt_y
 		: stnt};
 	p->usr = &w;
