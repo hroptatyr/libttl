@@ -52,13 +52,15 @@ static unsigned int iri_xpnd = 1U;
 static unsigned int iri_xgen = 1U;
 static unsigned int sortable = 0U;
 
+typedef size_t strhdl_t;
+
 struct _writer_s {
 	/* codec */
 	ttl_codec_t *c;
 	/* prefix buffer */
 	ttl_decl_t *d;
 	/* for diversions */
-	FILE *stream;
+	strhdl_t stri;
 };
 
 
@@ -80,43 +82,152 @@ error(const char *fmt, ...)
 }
 
 
-static void
-fwrite_iri(struct _writer_s *w, ttl_iri_t t, void *stream)
-{
-	if (UNLIKELY(!t.pre.len && t.val.len == 1U && *t.val.str == 'a')) {
-		fputc('a', stream);
-	} else if (t.pre.str) {
-		ttl_str_t x;
+/* ring buffer */
+#define stdi		0U
+#define INI_RING	64U
+static size_t ringz = INI_RING;
+static uint64_t _hring[INI_RING], *hring = _hring;
+static char *_sring[countof(_hring)], **sring = _sring;
+static size_t _nring[countof(_hring)], *nring = _nring;
+static size_t _zring[countof(_hring)], *zring = _zring;
 
-		if (UNLIKELY(iri_xpnd) &&
-		    LIKELY((x = ttl_decl_get(w->d, t.pre)).len)) {
-			fputc('<', stream);
-			fwrite(x.str, 1, x.len, stream);
-			fwrite(t.val.str, 1, t.val.len, stream);
-			fputc('>', stream);
-		} else if (UNLIKELY(iri_xgen) &&
-			   LIKELY((x = ttl_decl_get(w->d, t.pre)).len) &&
-			   t.pre.str[0U] == 'n' && t.pre.str[1U] == 's' &&
-			   t.pre.str[2U] >= '1' && t.pre.str[2U] <= '9') {
-			fputc('<', stream);
-			fwrite(x.str, 1, x.len, stream);
-			fwrite(t.val.str, 1, t.val.len, stream);
-			fputc('>', stream);
-		} else {
-			fwrite(t.pre.str, 1, t.pre.len, stream);
-			fputc(':', stream);
-			fwrite(t.val.str, 1, t.val.len, stream);
-		}
-	} else {
-		fputc('<', stream);
-		fwrite(t.val.str, 1, t.val.len, stream);
-		fputc('>', stream);
+static void
+salloc(strhdl_t stri, size_t n)
+{
+/* make sure another N bytes could fit */
+	if (UNLIKELY(nring[stri] + n >= zring[stri])) {
+		size_t nu, mb = nring[stri] + n;
+		for (nu = (2U * zring[stri]) ?: 256U; nu < mb; nu *= 2U);
+		sring[stri] = realloc(sring[stri], nu);
+		zring[stri] = nu;
 	}
 	return;
 }
 
 static void
-fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
+sput_(int c, strhdl_t stri)
+{
+/* like sputc but assume enough space */
+	sring[stri][nring[stri]++] = (char)c;
+	return;
+}
+
+static void
+sputc(int c, strhdl_t stri)
+{
+	salloc(stri, 1U);
+	sput_(c, stri);
+	return;
+}
+
+static void
+swrit(const char *s, size_t n, strhdl_t stri)
+{
+	salloc(stri, n);
+	memcpy(sring[stri] + nring[stri], s, n);
+	nring[stri] += n;
+	return;
+}
+
+static void
+sflsh(strhdl_t stri)
+{
+	if (LIKELY(!stri)) {
+		fwrite(sring[stri], 1, nring[stri], stdout);
+		nring[stri] = 0U;
+	}
+	return;
+}
+
+static strhdl_t
+ring_get(uint64_t h)
+{
+/* use h == 0 to obtain an empty slot */
+	for (size_t i = stdi+1U; i < ringz; i++) {
+		if (hring[i] == h) {
+			return i;
+		}
+	}
+	return (strhdl_t)-1;
+}
+
+static strhdl_t
+ring_put(uint64_t h)
+{
+	for (size_t i = stdi+1U; i < ringz; i++) {
+		if (!hring[i]) {
+			hring[i] = h;
+			return i;
+		}
+	}
+	/* big disaster */
+	ringz *= 2U;
+#define REALLOC_RING(x)						\
+	if (x != _##x) {					\
+		x = realloc(x, ringz * sizeof(*x));		\
+	} else {						\
+		x = malloc(ringz * sizeof(*x));			\
+		memcpy(x, _##x, ringz * sizeof(*x));		\
+	}							\
+	memset(x + ringz / 2U, 0, ringz / 2U * sizeof(*x))
+#define FREE_RING(x)				\
+	if (x != _##x) free(x)
+	REALLOC_RING(hring);
+	REALLOC_RING(sring);
+	REALLOC_RING(zring);
+	REALLOC_RING(nring);
+	/* slot at ringz/2U must be free */
+	hring[ringz / 2U] = h;
+	return ringz / 2U;
+}
+
+static void
+ring_rem(strhdl_t k)
+{
+	hring[k] = 0U;
+	nring[k] = 0U;
+	return;
+}
+
+
+static void
+swrite_iri(struct _writer_s *w, ttl_iri_t t, strhdl_t stri)
+{
+	if (UNLIKELY(!t.pre.len && t.val.len == 1U && *t.val.str == 'a')) {
+		sputc('a', stri);
+	} else if (t.pre.str) {
+		ttl_str_t x;
+
+		if (UNLIKELY(iri_xpnd) &&
+		    LIKELY((x = ttl_decl_get(w->d, t.pre)).len)) {
+			sputc('<', stri);
+			swrit(x.str, x.len, stri);
+			swrit(t.val.str, t.val.len, stri);
+			sputc('>', stri);
+		} else if (UNLIKELY(iri_xgen) &&
+			   LIKELY((x = ttl_decl_get(w->d, t.pre)).len) &&
+			   t.pre.str[0U] == 'n' && t.pre.str[1U] == 's' &&
+			   t.pre.str[2U] >= '1' && t.pre.str[2U] <= '9') {
+			sputc('<', stri);
+			swrit(x.str, x.len, stri);
+			swrit(t.val.str, t.val.len, stri);
+			sputc('>', stri);
+		} else {
+			swrit(t.pre.str, t.pre.len, stri);
+			sputc(':', stri);
+			swrit(t.val.str, t.val.len, stri);
+		}
+	} else {
+		sputc('<', stri);
+		swrit(t.val.str, t.val.len, stri);
+		sputc('>', stri);
+	}
+	sflsh(stri);
+	return;
+}
+
+static void
+swrite_lit(struct _writer_s *w, ttl_lit_t t, strhdl_t stri)
 {
 	size_t i = 1U;
 
@@ -131,42 +242,48 @@ fwrite_lit(struct _writer_s *w, ttl_lit_t t, void *stream)
 		t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
 	}
 
-	fwrite(t.val.str - i, 1, i, stream);
-	fwrite(t.val.str, 1, t.val.len, stream);
-	fwrite(t.val.str - i, 1, i, stream);
+	swrit(t.val.str - i, i, stri);
+	swrit(t.val.str, t.val.len, stri);
+	swrit(t.val.str - i, i, stri);
 	if (t.typ.val.len) {
-		fputc('^', stream);
-		fputc('^', stream);
-		fwrite_iri(w, t.typ, stream);
+		sputc('^', stri);
+		sputc('^', stri);
+		swrite_iri(w, t.typ, stri);
 	}
 	if (t.lng.len) {
-		fputc('@', stream);
-		fwrite(t.lng.str, 1, t.lng.len, stream);
+		sputc('@', stri);
+		swrit(t.lng.str, t.lng.len, stri);
 	}
 
 	ttl_codec_clear(w->c);
+	sflsh(stri);
 	return;
 }
 
 static void
-fwrite_bla(struct _writer_s *UNUSED(w), ttl_bla_t t, void *stream)
+swrite_bla(struct _writer_s *UNUSED(w), ttl_bla_t t, strhdl_t stri)
 {
-	fprintf(stream, " _:b%016lx", -t.h[0U]);
+	char buf[24U];
+	int z;
+
+	z = snprintf(buf, sizeof(buf), " _:b%016lx", -t.h[0U]);
+	swrit(buf, z, stri);
+	sflsh(stri);
 	return;
 }
 
 static void
-fwrite_term(struct _writer_s *w, ttl_term_t t, void *stream)
+swrite_term(struct _writer_s *w, ttl_term_t t, strhdl_t stri)
 {
 	switch (t.typ) {
 	case TTL_TYP_IRI:
-		fwrite_iri(w, t.iri, stream);
+		swrite_iri(w, t.iri, stri);
 		break;
 	case TTL_TYP_LIT:
-		fwrite_lit(w, t.lit, stream);
+		swrite_lit(w, t.lit, stri);
 		break;
 	case TTL_TYP_BLA:
-		fwrite_bla(w, t.bla, stream);
+		swrite_bla(w, t.bla, stri);
 		break;
 	default:
 		break;
@@ -238,54 +355,6 @@ try_cast(ttl_term_t t)
 }
 
 
-/* ring buffer */
-typedef size_t ridx_t;
-static uint64_t hring[64U];
-static char *sring[countof(hring)];
-static size_t zring[countof(hring)];
-static FILE *Fring[countof(hring)];
-
-static ridx_t
-ring_get(uint64_t h)
-{
-/* use h == 0 to obtain an empty slot */
-	for (size_t i = 0U; i < countof(hring); i++) {
-		if (hring[i] == h) {
-			return i;
-		}
-	}
-	return (ridx_t)-1;
-}
-
-static ridx_t
-ring_put(uint64_t h)
-{
-	for (size_t i = 0U; i < countof(hring); i++) {
-		if (!hring[i]) {
-			hring[i] = h;
-			Fring[i] = open_memstream(sring + i, zring + i);
-			return i;
-		}
-	}
-	return (ridx_t)-1;
-}
-
-static const char*
-ring_rem(ridx_t k)
-{
-	hring[k] = 0U;
-	fclose(Fring[k]);
-	Fring[k] = NULL;
-	return sring[k];
-}
-
-static FILE*
-ring_str(ridx_t k)
-{
-	return Fring[k];
-}
-
-
 static size_t zbuf[2U];
 static char *lbuf[2U];
 static ttl_term_t last[3U];
@@ -344,22 +413,23 @@ decl(void *usr, ttl_iri_t decl)
 
 	ttl_decl_put(w->d, decl.pre, decl.val);
 	if (!iri_xpnd) {
-		if (last[TTL_SUBJ].typ && w->stream == stdout) {
-			fputc('.', stdout);
-			fputc('\n', stdout);
+		if (last[TTL_SUBJ].typ && w->stri == stdi) {
+			sputc('.', stdi);
+			sputc('\n', stdi);
 			last[TTL_SUBJ] = (ttl_term_t){};
 		}
-		fwrite("@prefix ", 1, 8U, stdout);
-		fwrite(decl.pre.str, 1, decl.pre.len, stdout);
-		fputc(':', stdout);
-		fputc(' ', stdout);
-		fputc('<', stdout);
-		fwrite(decl.val.str, 1, decl.val.len, stdout);
-		fputc('>', stdout);
-		fputc(' ', stdout);
-		fputc('.', stdout);
-		fputc('\n', stdout);
+		swrit("@prefix ", 8U, stdi);
+		swrit(decl.pre.str, decl.pre.len, stdi);
+		sputc(':', stdi);
+		sputc(' ', stdi);
+		sputc('<', stdi);
+		swrit(decl.val.str, decl.val.len, stdi);
+		sputc('>', stdi);
+		sputc(' ', stdi);
+		sputc('.', stdi);
+		sputc('\n', stdi);
 	}
+	sflsh(stdi);
 	return;
 }
 
@@ -372,40 +442,41 @@ stmt(void *usr, const ttl_stmt_t *stmt, size_t where)
 	if (UNLIKELY(stmt == NULL)) {
 		/* last statement */
 		if (last[TTL_SUBJ].typ) {
-			fputc('.', stdout);
-			fputc('\n', stdout);
+			sputc('.', stdi);
+			sputc('\n', stdi);
 		}
 		last[TTL_SUBJ] = (ttl_term_t){};
 	} else if (!termeqp(w, stmt[where].subj, last[TTL_SUBJ])) {
 		if (last[TTL_SUBJ].typ) {
-			fputc('.', stdout);
-			fputc('\n', stdout);
+			sputc('.', stdi);
+			sputc('\n', stdi);
 		}
-		fputc('\n', stdout);
-		fwrite_term(w, stmt[where].subj, stdout);
-		fputc('\n', stdout);
-		fputc('\t', stdout);
-		fwrite_term(w, stmt[where].pred, stdout);
-		fputc('\t', stdout);
-		fwrite_term(w, stmt[where].obj, stdout);
-		fputc(' ', stdout);
+		sputc('\n', stdi);
+		swrite_term(w, stmt[where].subj, stdi);
+		sputc('\n', stdi);
+		sputc('\t', stdi);
+		swrite_term(w, stmt[where].pred, stdi);
+		sputc('\t', stdi);
+		swrite_term(w, stmt[where].obj, stdi);
+		sputc(' ', stdi);
 		last[TTL_SUBJ] = clon(w, stmt[where].subj, TTL_SUBJ);
 		last[TTL_PRED] = (ttl_term_t){};
 	} else if (!termeqp(w, stmt[where].pred, last[TTL_PRED])) {
-		fputc(';', stdout);
-		fputc('\n', stdout);
-		fputc('\t', stdout);
-		fwrite_term(w, stmt[where].pred, stdout);
-		fputc('\t', stdout);
-		fwrite_term(w, stmt[where].obj, stdout);
-		fputc(' ', stdout);
+		sputc(';', stdi);
+		sputc('\n', stdi);
+		sputc('\t', stdi);
+		swrite_term(w, stmt[where].pred, stdi);
+		sputc('\t', stdi);
+		swrite_term(w, stmt[where].obj, stdi);
+		sputc(' ', stdi);
 		last[TTL_PRED] = clon(w, stmt[where].pred, TTL_PRED);
 	} else {
-		fputc(',', stdout);
-		fputc(' ', stdout);
-		fwrite_term(w, stmt[where].obj, stdout);
-		fputc(' ', stdout);
+		sputc(',', stdi);
+		sputc(' ', stdi);
+		swrite_term(w, stmt[where].obj, stdi);
+		sputc(' ', stdi);
 	}
+	sflsh(stdi);
 	return;
 }
 #endif
@@ -418,127 +489,132 @@ stmt_x(void *usr, const ttl_stmt_t *stmt, size_t where)
 
 	if (UNLIKELY(j > where)) {
 		for (; j > where; j--) {
-			fputc(';', stdout);
-			fputc('\n', stdout);
+			sputc(';', stdi);
+			sputc('\n', stdi);
 			for (size_t i = 0U; i < j; i++) {
-				fputc('\t', stdout);
+				sputc('\t', stdi);
 			}
-			fputc(']', stdout);
-			fputc(' ', stdout);
+			sputc(']', stdi);
+			sputc(' ', stdi);
 		}
 		last[TTL_SUBJ] = clon(w, stmt[j].subj, TTL_SUBJ);
 		last[TTL_PRED] = clon(w, stmt[j].pred, TTL_PRED);
 		last[TTL_OBJ] = (ttl_term_t){};
 		if (LIKELY(stmt != NULL)) {
-			return;
+			goto flush;
 		}
 	}
 	if (UNLIKELY(stmt == NULL)) {
 		/* last statement */
 		if (last[TTL_SUBJ].typ) {
-			fputc('.', stdout);
-			fputc('\n', stdout);
+			sputc('.', stdi);
+			sputc('\n', stdi);
 		}
 		last[TTL_SUBJ] = (ttl_term_t){};
 	} else if (!termeqp(w, stmt[j].subj, last[TTL_SUBJ])) {
 		if (last[TTL_SUBJ].typ) {
-			fputc('.', stdout);
-			fputc('\n', stdout);
+			sputc('.', stdi);
+			sputc('\n', stdi);
 		}
-		fputc('\n', stdout);
-		fwrite_term(w, stmt[j].subj, stdout);
-		fputc('\n', stdout);
-		fputc('\t', stdout);
+		sputc('\n', stdi);
+		swrite_term(w, stmt[j].subj, stdi);
+		sputc('\n', stdi);
+		sputc('\t', stdi);
 		for (size_t i = 0U; i < j; i++) {
-			fputc('\t', stdout);
+			sputc('\t', stdi);
 		}
-		fwrite_term(w, stmt[j].pred, stdout);
-		fputc('\t', stdout);
+		swrite_term(w, stmt[j].pred, stdi);
+		sputc('\t', stdi);
 		if (LIKELY(stmt[j].obj.typ != TTL_TYP_BLA)) {
-			fwrite_term(w, stmt[j].obj, stdout);
-			fputc(' ', stdout);
+			swrite_term(w, stmt[j].obj, stdi);
+			sputc(' ', stdi);
 		} else {
 			goto blank;
 		}
 		last[TTL_SUBJ] = clon(w, stmt[j].subj, TTL_SUBJ);
 		last[TTL_PRED] = (ttl_term_t){};
 	} else if (!termeqp(w, stmt[j].pred, last[TTL_PRED])) {
-		fputc(';', stdout);
-		fputc('\n', stdout);
-		fputc('\t', stdout);
+		sputc(';', stdi);
+		sputc('\n', stdi);
+		sputc('\t', stdi);
 		for (size_t i = 0U; i < j; i++) {
-			fputc('\t', stdout);
+			sputc('\t', stdi);
 		}
-		fwrite_term(w, stmt[j].pred, stdout);
-		fputc('\t', stdout);
+		swrite_term(w, stmt[j].pred, stdi);
+		sputc('\t', stdi);
 		if (LIKELY(stmt[j].obj.typ != TTL_TYP_BLA)) {
-			fwrite_term(w, stmt[j].obj, stdout);
-			fputc(' ', stdout);
+			swrite_term(w, stmt[j].obj, stdi);
+			sputc(' ', stdi);
 		} else {
 			goto blank;
 		}
 		last[TTL_PRED] = clon(w, stmt[j].pred, TTL_PRED);
 		last[TTL_OBJ] = cbla(stmt[j].obj, where);
 	} else {
-		fputc(',', stdout);
-		fputc(' ', stdout);
+		sputc(',', stdi);
+		sputc(' ', stdi);
 		if (LIKELY(stmt[j].obj.typ != TTL_TYP_BLA)) {
-			fwrite_term(w, stmt[j].obj, stdout);
-			fputc(' ', stdout);
+			swrite_term(w, stmt[j].obj, stdi);
+			sputc(' ', stdi);
 		} else {
 			goto blank;
 		}
 	}
+	sflsh(stdi);
 	return;
 blank:
-	fputc('[', stdout);
-	fputc('\n', stdout);
+	sputc('[', stdi);
+	sputc('\n', stdi);
 	last[TTL_OBJ] = cbla(stmt[j].obj, where);
 	/* ascend */
 	j++;
-	fputc('\t', stdout);
+	sputc('\t', stdi);
 	for (size_t i = 0U; i < j; i++) {
-		fputc('\t', stdout);
+		sputc('\t', stdi);
 	}
-	fwrite_term(w, stmt[j].pred, stdout);
-	fputc('\t', stdout);
+	swrite_term(w, stmt[j].pred, stdi);
+	sputc('\t', stdi);
 	if (LIKELY(stmt[j].obj.typ != TTL_TYP_BLA)) {
-		fwrite_term(w, stmt[j].obj, stdout);
-		fputc(' ', stdout);
+		swrite_term(w, stmt[j].obj, stdi);
+		sputc(' ', stdi);
 	} else {
 		goto blank;
 	}
 	last[TTL_SUBJ] = clon(w, stmt[j].subj, TTL_SUBJ);
 	last[TTL_PRED] = clon(w, stmt[j].pred, TTL_PRED);
 	last[TTL_OBJ] = cbla(stmt[j].obj, where);
+flush:
+	sflsh(stdi);
 	return;
 }
 
 static void
-fwrite_term_or_ring(struct _writer_s *w, ttl_term_t t, void *stream)
+swrite_term_or_ring(struct _writer_s *w, ttl_term_t t, strhdl_t stri)
 {
 	ttl_term_t s;
 
 	switch ((s = try_cast(t)).typ) {
-		ridx_t k;
+		strhdl_t strk;
 
 	case TTL_TYP_BLA:
-		if ((k = ring_get(s.bla.h[0U])) != (ridx_t)-1) {
-			FILE *blastr = ring_str(k);
-			fputc('\n', blastr);
-			fputc(']', blastr);
-			for (const char *sp = ring_rem(k); *sp; sp++) {
-				fputc(*sp, stream);
+		if ((strk = ring_get(s.bla.h[0U])) != (strhdl_t)-1) {
+			sputc('\n', strk);
+			sputc(']', strk);
+			salloc(stri, 2U*nring[strk]);
+			for (const char *sp = sring[strk]; *sp; sp++) {
+				sput_(*sp, stri);
 				if (*sp == '\n') {
-					fputc('\t', stream);
+					sput_('\t', stri);
 				}
 			}
+			ring_rem(strk);
 			break;
 		}
 	default:
-		fwrite_term(w, t, stream);
+		swrite_term(w, t, stri);
 		break;
 	}
+	sflsh(stri);
 	return;
 }
 
@@ -551,60 +627,56 @@ stmt_y(void *usr, const ttl_stmt_t *stmt, size_t where)
 	if (UNLIKELY(stmt == NULL)) {
 		/* last statement */
 		if (last[TTL_SUBJ].typ) {
-			fputc('.', w->stream);
-			fputc('\n', w->stream);
+			sputc('.', w->stri);
+			sputc('\n', w->stri);
 		}
 		last[TTL_SUBJ] = (ttl_term_t){};
 	} else if (!termeqp(w, stmt[where].subj, last[TTL_SUBJ])) {
 		ttl_term_t s;
 
-		if (last[TTL_SUBJ].typ && w->stream == stdout) {
-			fputc('.', w->stream);
-			fputc('\n', w->stream);
+		if (last[TTL_SUBJ].typ && w->stri == stdi) {
+			sputc('.', w->stri);
+			sputc('\n', w->stri);
 		} else if (last[TTL_SUBJ].typ) {
 			/* undivert */
-			fputc(';', w->stream);
-			w->stream = stdout;
+			sputc(';', w->stri);
+			w->stri = stdi;
 		}
 
 		if ((s = try_cast(stmt[where].subj)).typ == TTL_TYP_BLA) {
-			ridx_t k;
-
 			/* divert */
-			if ((k = ring_get(s.bla.h[0U])) == (ridx_t)-1) {
-				k = ring_put(s.bla.h[0U]);
-				w->stream = ring_str(k);
-				fputc('[', w->stream);
-			} else {
-				w->stream = ring_str(k);
+			if ((w->stri = ring_get(s.bla.h[0U])) == (strhdl_t)-1) {
+				w->stri = ring_put(s.bla.h[0U]);
+				sputc('[', w->stri);
 			}
 		} else {
-			fputc('\n', w->stream);
-			fwrite_term(w, stmt[where].subj, w->stream);
+			sputc('\n', w->stri);
+			swrite_term(w, stmt[where].subj, w->stri);
 		}
-		fputc('\n', w->stream);
-		fputc('\t', w->stream);
-		fwrite_term(w, stmt[where].pred, w->stream);
-		fputc('\t', w->stream);
-		fwrite_term_or_ring(w, stmt[where].obj, w->stream);
-		fputc(' ', w->stream);
+		sputc('\n', w->stri);
+		sputc('\t', w->stri);
+		swrite_term(w, stmt[where].pred, w->stri);
+		sputc('\t', w->stri);
+		swrite_term_or_ring(w, stmt[where].obj, w->stri);
+		sputc(' ', w->stri);
 		last[TTL_SUBJ] = clon(w, stmt[where].subj, TTL_SUBJ);
 		last[TTL_PRED] = (ttl_term_t){};
 	} else if (!termeqp(w, stmt[where].pred, last[TTL_PRED])) {
-		fputc(';', w->stream);
-		fputc('\n', w->stream);
-		fputc('\t', w->stream);
-		fwrite_term(w, stmt[where].pred, w->stream);
-		fputc('\t', w->stream);
-		fwrite_term_or_ring(w, stmt[where].obj, w->stream);
-		fputc(' ', w->stream);
+		sputc(';', w->stri);
+		sputc('\n', w->stri);
+		sputc('\t', w->stri);
+		swrite_term(w, stmt[where].pred, w->stri);
+		sputc('\t', w->stri);
+		swrite_term_or_ring(w, stmt[where].obj, w->stri);
+		sputc(' ', w->stri);
 		last[TTL_PRED] = clon(w, stmt[where].pred, TTL_PRED);
 	} else {
-		fputc(',', w->stream);
-		fputc(' ', w->stream);
-		fwrite_term_or_ring(w, stmt[where].obj, w->stream);
-		fputc(' ', w->stream);
+		sputc(',', w->stri);
+		sputc(' ', w->stri);
+		swrite_term_or_ring(w, stmt[where].obj, w->stri);
+		sputc(' ', w->stri);
 	}
+	sflsh(stdi);
 	return;
 }
 
@@ -618,17 +690,18 @@ stnt(void *usr, const ttl_stmt_t *stmt, size_t where)
 	}
 
 	if (last[TTL_SUBJ].typ) {
-		fputc('.', stdout);
-		fputc('\n', stdout);
+		sputc('.', stdi);
+		sputc('\n', stdi);
 	}
-	fwrite_term(w, try_cast(stmt[where].subj), stdout);
-	fputc('\t', stdout);
-	fwrite_term(w, stmt[where].pred, stdout);
-	fputc('\t', stdout);
-	fwrite_term(w, try_cast(stmt[where].obj), stdout);
-	fputc(' ', stdout);
-	fputc('.', stdout);
-	fputc('\n', stdout);
+	swrite_term(w, try_cast(stmt[where].subj), stdi);
+	sputc('\t', stdi);
+	swrite_term(w, stmt[where].pred, stdi);
+	sputc('\t', stdi);
+	swrite_term(w, try_cast(stmt[where].obj), stdi);
+	sputc(' ', stdi);
+	sputc('.', stdi);
+	sputc('\n', stdi);
+	sflsh(stdi);
 	return;
 }
 
@@ -699,7 +772,7 @@ Error: cannot instantiate buffer for previous statement");
 		: stmt_y
 		: stnt};
 	p->usr = &w;
-	w.stream = stdout;
+	w.stri = stdi;
 
 	for (size_t i = 0U; i < argi->nargs + (!argi->nargs); i++) {
 		const char *fn = argi->args[i];
@@ -725,6 +798,17 @@ Error: cannot parse `%s'", fn);
 		close(fd);
 		p->hdl.stmt(&w, NULL, 0U);
 	}
+	errno = 0;
+	for (size_t i = stdi + 1U; i < ringz; i++) {
+		if (hring[i]) {
+			error("Warning: uncalled diverted stream %zu\n", i);
+		}
+	}
+
+	FREE_RING(hring);
+	FREE_RING(sring);
+	FREE_RING(zring);
+	FREE_RING(nring);
 
 out:
 	ttl_free_parser(p);
