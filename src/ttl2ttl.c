@@ -81,6 +81,25 @@ error(const char *fmt, ...)
 	return;
 }
 
+static uint64_t
+strtoux64(const char *str, char **ep)
+{
+/* silly version of strtoull(., ., 16) with no range checks */
+	const char *sp;
+	unsigned char c;
+	uint64_t x;
+
+#define ctox(x)	(unsigned char)((x | ' ') % 39U - 9U)
+	for (sp = str, x = 0U; (c = ctox(*sp)) < 16U; sp++) {
+		x *= 16U;
+		x += c;
+	}
+	if (ep != NULL) {
+		*ep = deconst(sp);
+	}
+	return x;
+}
+
 
 /* ring buffer */
 #define stdi		0U
@@ -339,7 +358,8 @@ try_cast(ttl_term_t t)
 
 			/* skip over potential blank node prefix */
 			val += (*t.iri.val.str == 'b' || *t.iri.val.str == 'B');
-			if (UNLIKELY(!(u = strtoull(val, &ep, 16)))) {
+			val += (*t.iri.val.str == 'n' || *t.iri.val.str == 'N');
+			if (UNLIKELY(!(u = strtoux64(val, &ep)))) {
 				;
 			} else if (t.iri.val.str + t.iri.val.len != ep) {
 				;
