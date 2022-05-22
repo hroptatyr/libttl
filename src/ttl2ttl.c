@@ -621,7 +621,8 @@ swrite_term_or_ring(struct _writer_s *w, ttl_term_t t, strhdl_t stri)
 			sputc('\n', strk);
 			sputc(']', strk);
 			salloc(stri, 2U*nring[strk]);
-			for (const char *sp = sring[strk]; *sp; sp++) {
+			for (const char *sp = sring[strk],
+				     *const ep = sp + nring[strk]; sp < ep; sp++) {
 				sput_(*sp, stri);
 				if (*sp == '\n') {
 					sput_('\t', stri);
