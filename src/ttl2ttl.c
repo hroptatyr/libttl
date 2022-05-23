@@ -82,20 +82,21 @@ error(const char *fmt, ...)
 }
 
 static uint64_t
-strtoux64(const char *str, char **ep)
+strtoux64(const char *str, size_t *len)
 {
 /* silly version of strtoull(., ., 16) with no range checks */
-	const char *sp;
+	const size_t e = len ? *len : -1U;
 	unsigned char c;
 	uint64_t x;
+	size_t i;
 
 #define ctox(x)	(unsigned char)((x | ' ') % 39U - 9U)
-	for (sp = str, x = 0U; (c = ctox(*sp)) < 16U; sp++) {
+	for (i = 0U, x = 0U; i < e && (c = ctox(str[i])) < 16U; i++) {
 		x *= 16U;
 		x += c;
 	}
-	if (ep != NULL) {
-		*ep = deconst(sp);
+	if (len != NULL) {
+		*len = i;
 	}
 	return x;
 }
@@ -352,16 +353,17 @@ try_cast(ttl_term_t t)
 			;
 		} else {
 			/* looking good */
-			char *ep = NULL;
 			const char *val = t.iri.val.str;
+			size_t len = t.iri.val.len;
 			uint64_t u;
 
 			/* skip over potential blank node prefix */
 			val += (*t.iri.val.str == 'b' || *t.iri.val.str == 'B');
 			val += (*t.iri.val.str == 'n' || *t.iri.val.str == 'N');
-			if (UNLIKELY(!(u = strtoux64(val, &ep)))) {
+			len -= val - t.iri.val.str;
+			if (UNLIKELY(!(u = strtoux64(val, &len)))) {
 				;
-			} else if (t.iri.val.str + t.iri.val.len != ep) {
+			} else if (t.iri.val.str + t.iri.val.len != val + len) {
 				;
 			} else {
 				/* we've done it */
@@ -822,7 +824,7 @@ Error: cannot parse `%s'", fn);
 	errno = 0;
 	for (size_t i = stdi + 1U; i < ringz; i++) {
 		if (hring[i]) {
-			error("Warning: uncalled diverted stream %zu\n", i);
+			error("Warning: uncalled diverted stream %zu (_:b%016lx)", i, hring[i]);
 		}
 	}
 
