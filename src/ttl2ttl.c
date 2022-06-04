@@ -87,7 +87,7 @@ strtoux64(const char *str, size_t *len)
 /* silly version of strtoull(., ., 16) with no range checks */
 	const size_t e = len ? *len : -1U;
 	unsigned char c;
-	uint64_t x;
+	uint64_t x = 0ULL;
 	size_t i;
 
 #define ctox(x)	(unsigned char)((x | ' ') % 39U - 9U)
@@ -286,7 +286,7 @@ swrite_bla(struct _writer_s *UNUSED(w), ttl_bla_t t, strhdl_t stri)
 	char buf[24U];
 	int z;
 
-	z = snprintf(buf, sizeof(buf), " _:b%016lx", -t.h[0U]);
+	z = snprintf(buf, sizeof(buf), " _:b%016lx", ~t.h[0U]);
 	swrit(buf, z, stri);
 	sflsh(stri);
 	return;
@@ -354,14 +354,14 @@ try_cast(ttl_term_t t)
 		} else {
 			/* looking good */
 			const char *val = t.iri.val.str;
-			size_t len = t.iri.val.len;
+			size_t len = t.iri.val.len, lrn;
 			uint64_t u;
 
 			/* skip over potential blank node prefix */
 			val += (*t.iri.val.str == 'b' || *t.iri.val.str == 'B');
 			val += (*t.iri.val.str == 'n' || *t.iri.val.str == 'N');
-			len -= val - t.iri.val.str;
-			if (UNLIKELY(!(u = strtoux64(val, &len)))) {
+			lrn = len -= val - t.iri.val.str;
+			if (UNLIKELY(((u = strtoux64(val, &len)), len < lrn))) {
 				;
 			} else if (t.iri.val.str + t.iri.val.len != val + len) {
 				;
