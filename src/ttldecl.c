@@ -1,6 +1,6 @@
 /*** ttldecl.c - libttl standard decl handler
  *
- * Copyright (C) 2017-2018 Sebastian Freundt
+ * Copyright (C) 2017-2022 Sebastian Freundt
  *
  * Author:  Sebastian Freundt <freundt@ga-group.nl>
  *

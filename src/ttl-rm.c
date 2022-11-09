@@ -1,6 +1,6 @@
 /*** ttl-rm.c -- turn triples into SPARQL DELETE instructions
  *
- * Copyright (C) 2017-2018 Sebastian Freundt
+ * Copyright (C) 2017-2022 Sebastian Freundt
  *
  * Author:  Sebastian Freundt <freundt@ga-group.nl>
  *

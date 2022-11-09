@@ -1,6 +1,6 @@
 /*** ttl2nt.c - trig/turtle/ntriples/nquads reader
  *
- * Copyright (C) 2017-2018 Sebastian Freundt
+ * Copyright (C) 2017-2022 Sebastian Freundt
  *
  * Author:  Sebastian Freundt <freundt@ga-group.nl>
  *
