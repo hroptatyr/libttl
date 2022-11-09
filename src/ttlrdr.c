@@ -1048,7 +1048,7 @@ more:
 		case STATE_BP:
 			/* BP + [ -> BS */
 			pp->s[pp->S].quad[TTL_OBJ] =
-				(ttl_term_t){TTL_TYP_BLA, .bla = {{pp->b++}}};
+				(ttl_term_t){TTL_TYP_BLA, .bla = {{~pp->S << 32U ^ pp->b++}}};
 			pp->t[pp->S]++;
 			/* push */
 			if (UNLIKELY(++pp->S >= pp->Z)) {
