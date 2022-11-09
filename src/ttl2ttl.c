@@ -286,7 +286,7 @@ swrite_bla(struct _writer_s *UNUSED(w), ttl_bla_t t, strhdl_t stri)
 	char buf[24U];
 	int z;
 
-	z = snprintf(buf, sizeof(buf), " _:b%016lx", ~t.h[0U]);
+	z = snprintf(buf, sizeof(buf), " _:b%016lx", t.h[0U]);
 	swrit(buf, z, stri);
 	sflsh(stri);
 	return;
@@ -823,8 +823,16 @@ Error: cannot parse `%s'", fn);
 	}
 	errno = 0;
 	for (size_t i = stdi + 1U; i < ringz; i++) {
-		if (hring[i]) {
-			error("Warning: uncalled diverted stream %zu (_:b%016lx)", i, hring[i]);
+		if (hring[i] && nring[i] >= 2U) {
+			char tbuf[24U];
+			int z;
+
+			z = snprintf(tbuf, sizeof(buf), "_:b%016lx", hring[i]);
+			fputc('\n', stdout);
+			fwrite(tbuf, 1, z, stdout);
+			fwrite(sring[i] + 1U, 1, nring[i] - 2U, stdout);
+			fputc('.', stdout);
+			fputc('\n', stdout);
 		}
 	}
 
