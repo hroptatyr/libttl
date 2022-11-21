@@ -5,9 +5,12 @@ If omitted, read from stdin.
 
   -x, --expand          Expand all IRIs.
   --expand-generic      Expand generic namespace abbreviations.
-  -B, --square-blanks   Turn named blanks into square brackets.
-                        Blanks must be defined before referenced.
   --sortable            One statement per line.
                         Use tr(1) to influence sorting of @prefix, e.g.
                         tr '@' '\a' | sort | tr '\a' '@'
+  -B, --square-blanks   Turn named blanks into square brackets.
+                        Blanks must be defined before referenced.
+  -Q, --quote-massage   Turn long strings (with new lines) into triple
+                        quoted strings, turn others into single quoted
+                        strings.
   --no-frills           Do not use syntactic sugar.

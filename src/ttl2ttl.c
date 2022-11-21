@@ -51,6 +51,7 @@
 static unsigned int iri_xpnd = 1U;
 static unsigned int iri_xgen = 1U;
 static unsigned int sortable = 0U;
+static unsigned int quotmasg = 0U;
 
 typedef size_t strhdl_t;
 
@@ -250,6 +251,7 @@ static void
 swrite_lit(struct _writer_s *w, ttl_lit_t t, strhdl_t stri)
 {
 	size_t i = 1U;
+	unsigned int q = 0U;
 
 	/* count quotedness */
 	i -= t.val.str[0 - i] <= ' ';
@@ -258,13 +260,29 @@ swrite_lit(struct _writer_s *w, ttl_lit_t t, strhdl_t stri)
 
 	if (UNLIKELY(sortable)) {
 		t.val = ttl_enquot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
-	} else if (i >= 3U) {
-		t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
+	} else if (i >= 3U || quotmasg && (q = ttl_hasquot_str(t.val))) {
+		t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL ^ TTL_QUOT_UTF8);
 	}
 
-	swrit(t.val.str - i, i, stri);
-	swrit(t.val.str, t.val.len, stri);
-	swrit(t.val.str - i, i, stri);
+	if (LIKELY(!quotmasg)) {
+		swrit(t.val.str - i, i, stri);
+		swrit(t.val.str, t.val.len, stri);
+		swrit(t.val.str - i, i, stri);
+	} else if (!(q & TTL_QUOT_CTRL)) {
+		/* no control characters, use single quotes */
+		sputc(t.val.str[-1], stri);
+		swrit(t.val.str, t.val.len, stri);
+		sputc(t.val.str[-1], stri);
+	} else {
+		/* use triple quotes */
+		sputc(t.val.str[-1], stri);
+		sputc(t.val.str[-1], stri);
+		sputc(t.val.str[-1], stri);
+		swrit(t.val.str, t.val.len, stri);
+		sputc(t.val.str[-1], stri);
+		sputc(t.val.str[-1], stri);
+		sputc(t.val.str[-1], stri);
+	}
 	if (t.typ.val.len) {
 		sputc('^', stri);
 		sputc('^', stri);
@@ -767,6 +785,7 @@ Error: cannot instantiate ttl parser");
 	iri_xpnd = argi->expand_flag;
 	iri_xgen = argi->expand_generic_flag;
 	sortable = argi->sortable_flag;
+	quotmasg = argi->quote_massage_flag;
 
 	w = make_writer();
 	if (w.c == NULL || w.d == NULL) {
