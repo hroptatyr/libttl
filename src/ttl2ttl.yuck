@@ -13,4 +13,6 @@ If omitted, read from stdin.
   -Q, --quote-massage   Turn long strings (with new lines) into triple
                         quoted strings, turn others into single quoted
                         strings.
+  -U, --utf8-massage    Turn strings with unicode escapes into native
+                        utf8 sequences.
   --no-frills           Do not use syntactic sugar.

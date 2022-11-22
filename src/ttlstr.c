@@ -102,18 +102,28 @@ ttl_codec_clear(ttl_codec_t *x)
 	return;
 }
 
-ttl_str_t
+ttl_str_t __attribute__((noinline))
 ttl_dequot_str(ttl_codec_t *cc, ttl_str_t str, unsigned int what)
 {
 	size_t k = cc->x.n;
 	size_t b;
 
-	if (UNLIKELY(k + str.len >= cc->x.z)) {
-		while ((cc->x.z *= 2U) < k + str.len);
-		cc->x.b = realloc(cc->x.b, cc->x.z);
-	}
 	if (!what || memchr(str.str, '\\', str.len) == NULL) {
 		return str;
+	}
+	if (UNLIKELY(k + str.len + 3U/*for """*/ >= cc->x.z)) {
+		while ((cc->x.z *= 2U) < k + str.len + 3U);
+
+		/* special care when STR points to cc->x.b */
+		if (UNLIKELY(cc->x.b <= str.str && str.str <= cc->x.b + k)) {
+			char *nu = malloc(cc->x.z);
+			memcpy(nu, cc->x.b, cc->x.n);
+			str.str += nu - cc->x.b;
+			free(cc->x.b);
+			cc->x.b = nu;
+		} else {
+			cc->x.b = realloc(cc->x.b, cc->x.z);
+		}
 	}
 	/* copy no quotes, or single quotes or triple quotes */
 	b = 1U;
@@ -275,9 +285,19 @@ ttl_enquot_str(ttl_codec_t *cc, ttl_str_t str, unsigned int what)
 	}
 	return str;
 enq:
-	if (UNLIKELY(k + 2U * str.len + 3U/*for """*/ >= cc->x.z)) {
-		while ((cc->x.z *= 2U) < k + 2U * str.len + 3U/*for """*/);
-		cc->x.b = realloc(cc->x.b, cc->x.z);
+	if (UNLIKELY(k + 2U * str.len + 3U >= cc->x.z)) {
+		while ((cc->x.z *= 2U) < k + 2U * str.len + 3U/*for '''*/);
+
+		/* special care when STR points to cc->x.b */
+		if (UNLIKELY(cc->x.b <= str.str && str.str <= cc->x.b + k)) {
+			char *nu = malloc(cc->x.z);
+			memcpy(nu, cc->x.b, cc->x.n);
+			str.str += nu - cc->x.b;
+			free(cc->x.b);
+			cc->x.b = nu;
+		} else {
+			cc->x.b = realloc(cc->x.b, cc->x.z);
+		}
 	}
 
 	/* copy no quotes, or single quotes or triple quotes */
