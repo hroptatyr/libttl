@@ -108,8 +108,8 @@ ttl_dequot_str(ttl_codec_t *cc, ttl_str_t str, unsigned int what)
 	size_t k = cc->x.n;
 	size_t b;
 
-	if (UNLIKELY(k + str.len >= cc->x.z)) {
-		while ((cc->x.z *= 2U) < k + str.len);
+	if (UNLIKELY(k + str.len + 3U >= cc->x.z)) {
+		while ((cc->x.z *= 2U) < k + str.len + 3U);
 		cc->x.b = realloc(cc->x.b, cc->x.z);
 	}
 	if (!what || memchr(str.str, '\\', str.len) == NULL) {
