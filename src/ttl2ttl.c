@@ -261,7 +261,7 @@ swrite_lit(struct _writer_s *w, ttl_lit_t t, strhdl_t stri)
 	if (UNLIKELY(sortable)) {
 		t.val = ttl_enquot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
 	} else if (i >= 3U || i && quotmasg && (q = ttl_hasquot_str(t.val))) {
-		t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL ^ TTL_QUOT_UTF8);
+		t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
 	}
 
 	if (!i) {
