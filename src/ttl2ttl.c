@@ -52,6 +52,7 @@ static unsigned int iri_xpnd = 1U;
 static unsigned int iri_xgen = 1U;
 static unsigned int sortable = 0U;
 static unsigned int quotmasg = 0U;
+static unsigned int utf8masg = 0U;
 
 typedef size_t strhdl_t;
 
@@ -251,16 +252,23 @@ static void
 swrite_lit(struct _writer_s *w, ttl_lit_t t, strhdl_t stri)
 {
 	size_t i = 1U;
-	unsigned int q = 0U;
+	unsigned int q;
 
 	/* count quotedness */
 	i -= t.val.str[0 - i] <= ' ';
 	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
 	i += t.val.str[0 - i] == t.val.str[0 - i - 1];
 
-	if (UNLIKELY(sortable)) {
+	q = i > 0U && (quotmasg || utf8masg)
+		? ttl_hasquot_str(t.val)
+		: 0U;
+
+	if (UNLIKELY(i > 0U && utf8masg)) {
+		t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_UTF8);
+	}
+	if (UNLIKELY(i > 0U && sortable)) {
 		t.val = ttl_enquot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
-	} else if (i >= 3U || i && quotmasg && (q = ttl_hasquot_str(t.val))) {
+	} else if (i >= 3U || quotmasg && q) {
 		t.val = ttl_dequot_str(w->c, t.val, TTL_QUOT_PRNT ^ TTL_QUOT_CTRL);
 	}
 
@@ -788,6 +796,7 @@ Error: cannot instantiate ttl parser");
 	iri_xgen = argi->expand_generic_flag;
 	sortable = argi->sortable_flag;
 	quotmasg = argi->quote_massage_flag;
+	utf8masg = argi->utf8_massage_flag;
 
 	w = make_writer();
 	if (w.c == NULL || w.d == NULL) {
