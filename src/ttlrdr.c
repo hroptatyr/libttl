@@ -938,6 +938,7 @@ more:
 	}
 	switch (parse_trans(&tt, &tp, bp, ep)) {
 	case TRANS_ERR:
+	err:
 		return -1;
 	case TRANS_UNK:
 	trans_unk:
@@ -958,7 +959,7 @@ more:
 			/* G + DIR -> G */
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		if (pp->public.hdl.decl) {
 			pp->public.hdl.decl(pp->public.usr, tt.iri);
@@ -996,7 +997,7 @@ more:
 			pp->s[pp->S].quad[pp->t[pp->S]++ - b] = tt;
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		break;
 	case TRANS_LIT:
@@ -1011,7 +1012,7 @@ more:
 			pp->t[pp->S]++;
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		break;
 	case TRANS_BRO:
@@ -1023,7 +1024,7 @@ more:
 			pp->t[pp->S] = STATE_G;
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		break;
 	case TRANS_BRC:
@@ -1036,7 +1037,7 @@ more:
 			pp->t[pp->S] = STATE_0;
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		break;
 	case TRANS_SQO:
@@ -1063,7 +1064,7 @@ more:
 			pp->t[pp->S] = STATE_BS;
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		break;
 	case TRANS_SQC:
@@ -1082,7 +1083,7 @@ more:
 			pp->S--;
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		break;
 	case TRANS_DOT:
@@ -1107,7 +1108,7 @@ more:
 			pp->t[pp->S] = STATE_G;
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		break;
 	case TRANS_COM:
@@ -1121,7 +1122,7 @@ more:
 			pp->t[pp->S]--;
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		goto stmt;
 	case TRANS_SEM:
@@ -1136,7 +1137,7 @@ more:
 			pp->t[pp->S]--;
 			break;
 		default:
-			return -1;
+			goto err;
 		}
 		goto stmt;
 
