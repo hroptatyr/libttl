@@ -155,6 +155,11 @@ static void
 sflsh(strhdl_t stri)
 {
 	if (LIKELY(!stri)) {
+		for (char *sp = sring[stri],
+			     *const ep = sp + nring[stri]; sp < ep; sp++) {
+			/* turn 0x02 into 0x0a */
+			*sp |= (char)((*sp == 0x02) << 3U);
+		}
 		fwrite(sring[stri], 1, nring[stri], stdout);
 		nring[stri] = 0U;
 	}
@@ -648,13 +653,13 @@ swrite_term_or_ring(struct _writer_s *w, ttl_term_t t, strhdl_t stri)
 
 	case TTL_TYP_BLA:
 		if ((strk = ring_get(s.bla.h[0U])) != (strhdl_t)-1) {
-			sputc('\n', strk);
+			sputc(0x02, strk);
 			sputc(']', strk);
 			salloc(stri, 2U*nring[strk]);
 			for (const char *sp = sring[strk],
 				     *const ep = sp + nring[strk]; sp < ep; sp++) {
 				sput_(*sp, stri);
-				if (*sp == '\n') {
+				if (*sp == 0x02) {
 					sput_('\t', stri);
 				}
 			}
@@ -701,10 +706,10 @@ stmt_y(void *usr, const ttl_stmt_t *stmt, size_t where)
 				sputc('[', w->stri);
 			}
 		} else {
-			sputc('\n', w->stri);
+			sputc(0x02, w->stri);
 			swrite_term(w, stmt[where].subj, w->stri);
 		}
-		sputc('\n', w->stri);
+		sputc(0x02, w->stri);
 		sputc('\t', w->stri);
 		swrite_term(w, stmt[where].pred, w->stri);
 		sputc('\t', w->stri);
@@ -714,7 +719,7 @@ stmt_y(void *usr, const ttl_stmt_t *stmt, size_t where)
 		last[TTL_PRED] = (ttl_term_t){};
 	} else if (!termeqp(w, stmt[where].pred, last[TTL_PRED])) {
 		sputc(';', w->stri);
-		sputc('\n', w->stri);
+		sputc(0x02, w->stri);
 		sputc('\t', w->stri);
 		swrite_term(w, stmt[where].pred, w->stri);
 		sputc('\t', w->stri);
