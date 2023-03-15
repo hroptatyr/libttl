@@ -426,56 +426,56 @@ ttl_hasquot_str(ttl_str_t str)
 {
 	unsigned int r = 0U;
 
-	if (memchr(str.str, '\\', str.len) == NULL) {
-		return 0;
-	}
 	/* copy no quotes, or single quotes or triple quotes */
 	for (size_t i = 0U; i < str.len; i++) {
 		/* utf8 seq ranges */
 		uint_fast32_t x = 0U;
 
-		if (LIKELY(str.str[i] != '\\')) {
-			continue;
-		}
-		switch (str.str[++i]) {
-		case 't':
-		case 'n':
-		case 'r':
-		case 'f':
-		case 'a':
-		case 'b':
-		case 'v':
+		if (UNLIKELY(str.str[i] < ' ')) {
 			r |= TTL_QUOT_CTRL;
-			break;
-		case 'U':
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-		case 'u':
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
-			x <<= 4U;
-			x ^= _chex(str.str[++i]);
+		} else if (UNLIKELY(str.str[i] == '\\')) {
+			switch (str.str[++i]) {
+			case 't':
+			case 'n':
+			case 'r':
+			case 'f':
+			case 'a':
+			case 'b':
+			case 'v':
+				r |= TTL_QUOT_CTRL;
+				break;
+			case 'U':
+				x ^= _chex(str.str[++i]);
+				x <<= 4U;
+				x ^= _chex(str.str[++i]);
+				x <<= 4U;
+				x ^= _chex(str.str[++i]);
+				x <<= 4U;
+				x ^= _chex(str.str[++i]);
+			case 'u':
+				x ^= _chex(str.str[++i]);
+				x <<= 4U;
+				x ^= _chex(str.str[++i]);
+				x <<= 4U;
+				x ^= _chex(str.str[++i]);
+				x <<= 4U;
+				x ^= _chex(str.str[++i]);
 
 #define CAP0	(1U << (7U))
 #define CAP1	(1U << (11U))
 #define CAP2	(1U << (16U))
 #define CAP3	(1U << (21U))
 
-			if (x < CAP3) {
-				r |= TTL_QUOT_UTF8;
+				if (x < CAP3) {
+					r |= TTL_QUOT_UTF8;
+					break;
+				}
+			default:
+				r |= TTL_QUOT_BKSL;
 				break;
 			}
-		default:
-			r |= TTL_QUOT_BKSL;
-			break;
+		} else if (UNLIKELY(str.str[i] == '"')) {
+			r |= TTL_QUOT_PRNT;
 		}
 	}
 	return r;
