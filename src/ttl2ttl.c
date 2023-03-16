@@ -105,6 +105,7 @@ strtoux64(const char *str, size_t *len)
 
 
 /* ring buffer */
+#define USE_HASH_RING	1
 #define stdi		0U
 #define INI_RING	64U
 static size_t ringz = INI_RING;
@@ -112,6 +113,9 @@ static uint64_t _hring[INI_RING], *hring = _hring;
 static char *_sring[countof(_hring)], **sring = _sring;
 static size_t _nring[countof(_hring)], *nring = _nring;
 static size_t _zring[countof(_hring)], *zring = _zring;
+
+#define FREE_RING(x)				\
+	if (x != _##x) free(x)
 
 static void
 salloc(strhdl_t stri, size_t n)
@@ -166,6 +170,92 @@ sflsh(strhdl_t stri)
 	return;
 }
 
+#if defined USE_HASH_RING
+static uint64_t
+hashu64(uint64_t x)
+{
+	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+	x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+	x = x ^ (x >> 31);
+	return x;
+}
+
+static strhdl_t
+ring_get(uint64_t h)
+{
+/* use h == 0 to obtain an empty slot */
+	size_t i = hashu64(h) % ringz;
+
+	for (i ^= !i; i < ringz && hring[i] != h; i++);
+	if (LIKELY(i < ringz)) {
+		return i;
+	}
+	return (strhdl_t)-1;
+}
+
+static strhdl_t
+ring_put(const uint64_t h)
+{
+	uint64_t *nuhring;
+	char **nusring;
+	size_t *nunring;
+	size_t *nuzring;
+	size_t nuringz = ringz;
+	size_t i;
+
+reput:
+	i = hashu64(h) % ringz;
+	for (i ^= !i; i < ringz && hring[i]; i++);
+	if (LIKELY(i < ringz)) {
+		hring[i] = h;
+		return i;
+	}
+rekey:
+	/* big trouble */
+	nuringz *= 2U;
+
+	nuhring = calloc(nuringz, sizeof(*nuhring));
+	nusring = calloc(nuringz, sizeof(*nusring));
+	nuzring = calloc(nuringz, sizeof(*nuzring));
+	nunring = calloc(nuringz, sizeof(*nunring));
+
+	/* rekey */
+	for (i = stdi+1U; i < ringz; i++) {
+		const uint64_t g = hring[i];
+		size_t j;
+
+		if (UNLIKELY(!g)) {
+			continue;
+		}
+		j = hashu64(g) % nuringz;
+		for (j ^= !j; j < nuringz && nuhring[j]; j++);
+		if (UNLIKELY(j >= nuringz)) {
+			/* still not enough space */
+			free(nuhring);
+			free(nusring);
+			free(nuzring);
+			free(nunring);
+			goto rekey;
+		}
+		nuhring[j] = g;
+		nusring[j] = sring[i];
+		nuzring[j] = zring[i];
+		nunring[j] = nring[i];
+	}
+	FREE_RING(hring);
+	FREE_RING(sring);
+	FREE_RING(zring);
+	FREE_RING(nring);
+	hring = nuhring;
+	sring = nusring;
+	zring = nuzring;
+	nring = nunring;
+	ringz = nuringz;
+	goto reput;
+}
+
+#else  /* !USE_HASH_RING */
+
 static strhdl_t
 ring_get(uint64_t h)
 {
@@ -197,8 +287,7 @@ ring_put(uint64_t h)
 		memcpy(x, _##x, ringz * sizeof(*x));		\
 	}							\
 	memset(x + ringz / 2U, 0, ringz / 2U * sizeof(*x))
-#define FREE_RING(x)				\
-	if (x != _##x) free(x)
+
 	REALLOC_RING(hring);
 	REALLOC_RING(sring);
 	REALLOC_RING(zring);
@@ -207,6 +296,7 @@ ring_put(uint64_t h)
 	hring[ringz / 2U] = h;
 	return ringz / 2U;
 }
+#endif	/* USE_HASH_RING */
 
 static void
 ring_rem(strhdl_t k)
