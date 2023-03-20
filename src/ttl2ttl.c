@@ -108,6 +108,7 @@ strtoux64(const char *str, size_t *len)
 #define USE_HASH_RING	1
 #define stdi		0U
 #define INI_RING	64U
+#define MAX_DIST	(INI_RING/2U)
 static size_t ringz = INI_RING;
 static uint64_t _hring[INI_RING], *hring = _hring;
 static char *_sring[countof(_hring)], **sring = _sring;
@@ -184,10 +185,10 @@ static strhdl_t
 ring_get(uint64_t h)
 {
 /* use h == 0 to obtain an empty slot */
-	size_t i = hashu64(h) % ringz;
+	size_t i = hashu64(h) % ringz, n;
 
-	for (i ^= !i; i < ringz && hring[i] != h; i++);
-	if (LIKELY(i < ringz)) {
+	for (i ^= !i, n = i + MAX_DIST; i < n && i < ringz && hring[i] != h; i++);
+	if (LIKELY(i < ringz && i < n)) {
 		return i;
 	}
 	return (strhdl_t)-1;
@@ -201,12 +202,12 @@ ring_put(const uint64_t h)
 	size_t *nunring;
 	size_t *nuzring;
 	size_t nuringz = ringz;
-	size_t i;
+	size_t i, n;
 
 reput:
 	i = hashu64(h) % ringz;
-	for (i ^= !i; i < ringz && hring[i]; i++);
-	if (LIKELY(i < ringz)) {
+	for (i ^= !i, n = i + MAX_DIST; i < n && i < ringz && hring[i]; i++);
+	if (LIKELY(i < ringz && i < n)) {
 		hring[i] = h;
 		return i;
 	}
@@ -228,8 +229,8 @@ rekey:
 			continue;
 		}
 		j = hashu64(g) % nuringz;
-		for (j ^= !j; j < nuringz && nuhring[j]; j++);
-		if (UNLIKELY(j >= nuringz)) {
+		for (j ^= !j, n = j + MAX_DIST; j < n && j < nuringz && nuhring[j]; j++);
+		if (UNLIKELY(j >= nuringz || j >= n)) {
 			/* still not enough space */
 			free(nuhring);
 			free(nusring);
