@@ -237,6 +237,8 @@ stmt(void *usr, const ttl_stmt_t *stmt, size_t where)
 		/* last statement */
 		puts("};");
 		ns = 0U;
+	} else if (UNLIKELY(stmt == NULL)) {
+		;
 	} else if (!termeqp(w, stmt[where].grph, grph) || !(ns % nstmt)) {
 		if (LIKELY(ns)) {
 			puts("};");
