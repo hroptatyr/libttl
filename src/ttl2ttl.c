@@ -405,7 +405,7 @@ swrite_bla(struct _writer_s *UNUSED(w), ttl_bla_t t, strhdl_t stri)
 	char buf[24U];
 	int z;
 
-	z = snprintf(buf, sizeof(buf), " _:b%016lx", t.h[0U]);
+	z = snprintf(buf, sizeof(buf), " _:x%016lx", t.h[0U]);
 	swrit(buf, z, stri);
 	sflsh(stri);
 	return;
