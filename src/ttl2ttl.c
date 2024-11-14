@@ -84,21 +84,16 @@ error(const char *fmt, ...)
 }
 
 static uint64_t
-strtoux64(const char *str, size_t *len)
+strtoux64(const char *str, size_t len)
 {
 /* silly version of strtoull(., ., 16) with no range checks */
-	const size_t e = len ? *len : -1U;
-	unsigned char c;
 	uint64_t x = 0ULL;
 	size_t i;
 
 #define ctox(x)	(unsigned char)((x | ' ') % 39U - 9U)
-	for (i = 0U, x = 0U; i < e && (c = ctox(str[i])) < 16U; i++) {
+	for (i = 0U, x = 0U; i < len; i++) {
 		x *= 16U;
-		x += c;
-	}
-	if (len != NULL) {
-		*len = i;
+		x += ctox(str[i]);
 	}
 	return x;
 }
@@ -478,21 +473,10 @@ try_cast(ttl_term_t t)
 		} else {
 			/* looking good */
 			const char *val = t.iri.val.str;
-			size_t len = t.iri.val.len, lrn;
-			uint64_t u;
+			size_t len = t.iri.val.len;
+			uint64_t u = strtoux64(val, len);
 
-			/* skip over potential blank node prefix */
-			val += (*t.iri.val.str == 'b' || *t.iri.val.str == 'B');
-			val += (*t.iri.val.str == 'n' || *t.iri.val.str == 'N');
-			lrn = len -= val - t.iri.val.str;
-			if (UNLIKELY(((u = strtoux64(val, &len)), len < lrn))) {
-				;
-			} else if (t.iri.val.str + t.iri.val.len != val + len) {
-				;
-			} else {
-				/* we've done it */
-				return (ttl_term_t){TTL_TYP_BLA, .bla = {u}};
-			}
+			return (ttl_term_t){TTL_TYP_BLA, .bla = u};
 		}
 	default:
 		break;
