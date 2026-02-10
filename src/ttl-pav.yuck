@@ -1,0 +1,5 @@
+Usage: ttl2ttl [FILE]...
+
+Emit pav provenance statements for subjects in FILEs.
+FILEs can be ttl/trig/ntriples/nquads.
+If omitted, read from stdin.
