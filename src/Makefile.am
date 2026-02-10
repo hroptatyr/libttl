@@ -55,6 +55,11 @@ ttl_rm_LDADD = libttl.la
 ttl_rm_LDFLAGS = -static
 BUILT_SOURCES += ttl-rm.yucc
 
+bin_PROGRAMS += ttl-pav
+ttl_pav_LDADD = libttl.la
+ttl_pav_LDFLAGS = -static
+BUILT_SOURCES += ttl-pav.yucc
+
 
 ## version rules
 version.c: $(srcdir)/version.c.in $(top_builddir)/.version
