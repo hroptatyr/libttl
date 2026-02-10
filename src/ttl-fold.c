@@ -485,7 +485,7 @@ add_term(ttl_str_t x)
 	if (UNLIKELY(nterms >= zterms)) {
 		const size_t oldzt = zterms;
 		zterms = (zterms * 2U) ?: 64U;
-		terms = realloc(terms, zterms * sizeof(*terms));
+		terms = recalloc(terms, oldzt, zterms, sizeof(*terms));
 		beefs = recalloc(beefs, oldzt, zterms, sizeof(*beefs));
 		nbeefs = recalloc(nbeefs, oldzt, zterms, sizeof(*nbeefs));
 	}
@@ -530,7 +530,9 @@ flts(void *usr, const ttl_stmt_t *stmt, size_t where)
 {
 	struct _world_s *w = usr;
 
-	if (UNLIKELY(stmt[where].subj.typ != TTL_TYP_IRI)) {
+	if (UNLIKELY(stmt == NULL)) {
+		return;
+	} else if (UNLIKELY(stmt[where].subj.typ != TTL_TYP_IRI)) {
 		return;
 	}
 
