@@ -295,7 +295,6 @@ stmt(void *usr, const ttl_stmt_t *stmt, size_t where)
 		static char pavd[] = "@prefix pav: <http://purl.org/pav/> .\n";
 		static char xsdd[] = "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n";
 		static char impd[] = "\tpav:importedOn\t";
-		static char crea[] = "\tpav:createdOn\t";
 		static char refd[] = "\tpav:lastRefreshedOn\t";
 		static char accd[] = "\tpav:sourceAccessedOn\t";
 		static char lacc[] = "\tpav:sourceLastAccessedOn\t";
@@ -317,11 +316,50 @@ stmt(void *usr, const ttl_stmt_t *stmt, size_t where)
 		sputc(';', stdi);
 		sputc('\n', stdi);
 		swrit(accd, strlenof(accd), stdi);
-		swrit(mtim, strlenof(wclk), stdi);
+		swrit(mtim, strlenof(mtim), stdi);
 		sputc(';', stdi);
 		sputc('\n', stdi);
 		swrit(lacc, strlenof(lacc), stdi);
-		swrit(mtim, strlenof(wclk), stdi);
+		swrit(mtim, strlenof(mtim), stdi);
+		sputc('.', stdi);
+		sputc('\n', stdi);
+
+		/* cache him so we know next time whether we've seen him */
+		last[TTL_SUBJ] = clon(w, stmt[where].subj, TTL_SUBJ);
+	}
+	sflsh(stdi);
+	return;
+}
+
+static void
+stmt_auth(void *usr, const ttl_stmt_t *stmt, size_t where)
+{
+	static int pav_decl;
+	struct _writer_s *w = usr;
+
+	if (UNLIKELY(stmt == NULL)) {
+		/* last statement */
+		last[TTL_SUBJ] = (ttl_term_t){};
+	} else if (!termeqp(w, stmt[where].subj, last[TTL_SUBJ])) {
+		static char pavd[] = "@prefix pav: <http://purl.org/pav/> .\n";
+		static char xsdd[] = "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n";
+		static char crea[] = "\tpav:createdOn\t";
+		static char refd[] = "\tpav:lastRefreshedOn\t";
+
+		if (UNLIKELY(!pav_decl)) {
+			swrit(pavd, strlenof(pavd), stdi);
+			swrit(xsdd, strlenof(xsdd), stdi);
+			pav_decl++;
+		}
+		sputc('\n', stdi);
+		swrite_term(w, stmt[where].subj, stdi);
+		sputc('\n', stdi);
+		swrit(crea, strlenof(crea), stdi);
+		swrit(wclk, strlenof(wclk), stdi);
+		sputc(';', stdi);
+		sputc('\n', stdi);
+		swrit(refd, strlenof(refd), stdi);
+		swrit(wclk, strlenof(wclk), stdi);
 		sputc('.', stdi);
 		sputc('\n', stdi);
 
@@ -387,7 +425,7 @@ Error: cannot instantiate buffer for previous statement");
 		}
 	}
 
-	p->hdl = (ttl_handler_t){decl, stmt};
+	p->hdl = (ttl_handler_t){decl, argi->author_flag ? stmt_auth : stmt};
 	p->usr = &w;
 	w.stri = stdi;
 
