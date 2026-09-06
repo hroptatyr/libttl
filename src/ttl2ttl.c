@@ -548,7 +548,14 @@ decl(void *usr, ttl_iri_t decl)
 			sputc('\n', stdi);
 			last[TTL_SUBJ] = (ttl_term_t){};
 		}
-		swrit("@prefix ", 8U, stdi);
+		if (sortable) {
+			sputc(' ', stdi);
+		}
+		if (decl.pre.str) {
+			swrit("@prefix ", 8U, stdi);
+		} else {
+			swrit("@base ", 6U, stdi);
+		}
 		swrit(decl.pre.str, decl.pre.len, stdi);
 		sputc(':', stdi);
 		sputc(' ', stdi);
