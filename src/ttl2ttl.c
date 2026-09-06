@@ -553,12 +553,12 @@ decl(void *usr, ttl_iri_t decl)
 		}
 		if (decl.pre.str) {
 			swrit("@prefix ", 8U, stdi);
+			swrit(decl.pre.str, decl.pre.len, stdi);
+			sputc(':', stdi);
+			sputc(' ', stdi);
 		} else {
 			swrit("@base ", 6U, stdi);
 		}
-		swrit(decl.pre.str, decl.pre.len, stdi);
-		sputc(':', stdi);
-		sputc(' ', stdi);
 		sputc('<', stdi);
 		swrit(decl.val.str, decl.val.len, stdi);
 		sputc('>', stdi);
