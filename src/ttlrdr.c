@@ -214,8 +214,9 @@ parse_qname(ttl_iri_t *tt, const char *bp, const char *const ep)
 		return NULL;
 	}
 	xp = bp;
-	/* parse local part, a closing paren ends it (collections) */
-	for (; bp < ep && (unsigned char)*bp > ' ' && *bp != ')'; bp += *bp == '\\' && bp + 1U < ep, bp++);
+	/* parse local part, a closing brack/paren ends it */
+	for (; bp < ep && (unsigned char)*bp >= '*' && *bp != ']' && *bp != '[';
+	     bp += *bp == '\\' && bp + 1U < ep, bp++);
 	/* make sure we don't end on triple punctuation */
 	bp -= bp > xp && (bp[-1] == '.' && bp < ep || bp[-1] == ';' || bp[-1] == ',');
 	if (UNLIKELY(bp >= ep)) {
