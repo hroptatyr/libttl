@@ -851,6 +851,7 @@ _sbrkmv(struct _parser_s *pp)
  * STATE_BO -> {0,1,2}
  */
 	size_t tot = 0U;
+	char *const old = pp->x.b;
 
 	/* save everything in the bottom of the stack, the graph is the
 	 * same in all frames so only the bottom one saves it, the others
@@ -875,10 +876,15 @@ _sbrkmv(struct _parser_s *pp)
 		}
 	}
 
-	if (UNLIKELY(pp->x.n + tot >= pp->x.z)) {
-		while ((pp->x.z *= 2U) < pp->x.n + tot);
-		pp->x.b = realloc(pp->x.b, pp->x.z);
+	/* collection frames hold nothing worth saving: list cells are
+	 * blank nodes and items are emitted as soon as they're seen */
+ 
+	/* terms may move around within the expander space, so copy to a
+	 * fresh buffer in order not to overwrite what's yet to be copied */
+	while (tot >= pp->x.z) {
+		pp->x.z *= 2U;
 	}
+	pp->x.b = malloc(pp->x.z);
 
 	for (size_t j = tot = 0U; j < pp->S; j++) {
 		for (size_t i = TTL_SUBJ; i <= (j ? TTL_OBJ : TTL_GRPH); i++) {
@@ -899,11 +905,12 @@ _sbrkmv(struct _parser_s *pp)
 			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].quad[i]);
 		}
 	}
+	free(old);
+
 	/* hand the saved graph on to the upper frames */
 	for (size_t j = 1U; j <= pp->S; j++) {
 		pp->s[j].quad[TTL_GRPH] = pp->s[0U].quad[TTL_GRPH];
 	}
-	free(old);
 	return tot;
 }
 
