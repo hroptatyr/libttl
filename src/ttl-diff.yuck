@@ -1,0 +1,5 @@
+Usage: ttl-rm FILEA FILEB
+
+Perform triple-wise comparison of file FILEA to FILEB.
+
+Both files should be sorted.
