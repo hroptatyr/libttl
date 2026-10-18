@@ -51,6 +51,18 @@
  *       P  + IRI -> O
  *       P  + LIT -> O
  *       P  + [   -> push + BS
+ *       P  + (   -> push + C0
+ *       0  + (   -> S + push + C0
+ *       G  + (   -> GS + push + C0
+ *       C0 + IRI -> C1
+ *       C0 + LIT -> C1
+ *       C0 + [   -> C1 + push + BS
+ *       C0 + (   -> C1 + push + C0
+ *       C1 + IRI -> C1
+ *       C1 + LIT -> C1
+ *       C1 + [   -> C1 + push + BS
+ *       C1 + (   -> C1 + push + C0
+ *       C1 + )   -> pop
  *       G  + }   -> 0
  *       G  + IRI -> GS
  *       G  + DIR -> G
@@ -82,6 +94,10 @@ typedef enum {
 	STATE_BS,
 	STATE_BP,
 	STATE_BO,
+	/* collection, no item seen yet */
+	STATE_C0,
+	/* collection, at least one item seen */
+	STATE_C1,
 } state_t;
 
 typedef enum {
@@ -98,6 +114,10 @@ typedef enum {
 	TRANS_SQO,
 	/* ] */
 	TRANS_SQC,
+	/* ( */
+	TRANS_PAO,
+	/* ) */
+	TRANS_PAC,
 	TRANS_DOT,
 	TRANS_COM,
 	TRANS_SEM,
@@ -136,6 +156,15 @@ min_z(size_t a, size_t b)
 }
 
 
+/* terms used for collections, these look exactly like what the lexer
+ * would produce for the absolute IRI <http://...#first> etc. */
+#define RDF_NS "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+#define RDF_IRI(x)	{TTL_TYP_IRI, .iri = {.val = {RDF_NS x, strlenof(RDF_NS x)}}}
+static const ttl_term_t rdf_first = RDF_IRI("first");
+static const ttl_term_t rdf_rest = RDF_IRI("rest");
+static const ttl_term_t rdf_nil = RDF_IRI("nil");
+
+
 static const char*
 __parse_prefix(const char *bp, const char *const ep)
 {
@@ -185,8 +214,8 @@ parse_qname(ttl_iri_t *tt, const char *bp, const char *const ep)
 		return NULL;
 	}
 	xp = bp;
-	/* parse local part */
-	for (; bp < ep && (unsigned char)*bp > ' '; bp++);
+	/* parse local part, a closing paren ends it (collections) */
+	for (; bp < ep && (unsigned char)*bp > ' ' && *bp != ')'; bp += *bp == '\\' && bp + 1U < ep, bp++);
 	/* make sure we don't end on triple punctuation */
 	bp -= bp > xp && (bp[-1] == '.' && bp < ep || bp[-1] == ';' || bp[-1] == ',');
 	if (UNLIKELY(bp >= ep)) {
@@ -254,7 +283,7 @@ parse_language(ttl_str_t *t, const char *bp, const char *const ep)
 	/* wait for non-alpha */
 	for (; bp < ep &&
 		     (unsigned char)*bp > ' ' &&
-		     *bp != '.' && *bp != ',' && *bp != ';'; bp++);
+		     *bp != '.' && *bp != ',' && *bp != ';' && *bp != ')'; bp++);
 	*t = (ttl_str_t){sp + 1U, bp - (sp + 1U)};
 	return bp < ep ? bp : sp;
 }
@@ -569,10 +598,33 @@ parse_trans(ttl_term_t *tt, const char **tp, const char *bp, const char *const e
 		bp++;
 		break;
 	case '(':
-		/* collection */
+		/* collection, or the empty collection () which is just
+		 * rdf:nil, i.e. a plain term.  Look ahead for the closing
+		 * paren here so the state machine never sees an empty one */
+		for (bp++; bp < ep;) {
+			if ((unsigned char)*bp <= ' ') {
+				bp++;
+			} else if (*bp == '#') {
+				while (bp < ep && *bp++ != '\n');
+			} else {
+				break;
+			}
+		}
+		if (UNLIKELY(bp >= ep)) {
+			/* need more data to decide */
+			goto rollback;
+		} else if (*bp == ')') {
+			*tt = rdf_nil;
+			bp++;
+			r = TRANS_IRI;
+			break;
+		}
+		bp = sp + 1U;
+		r = TRANS_PAO;
+		break;
 	case ')':
-		/* unsupported at the moment */
-		r = TRANS_ERR;
+		r = TRANS_PAC;
+		bp++;
 		break;
 	case '"':
 	case '\'':
@@ -800,9 +852,11 @@ _sbrkmv(struct _parser_s *pp)
  */
 	size_t tot = 0U;
 
-	/* save everything in the bottom of the stack */
+	/* save everything in the bottom of the stack, the graph is the
+	 * same in all frames so only the bottom one saves it, the others
+	 * get a copy of it below */
 	for (size_t j = 0U; j < pp->S; j++) {
-		for (size_t i = TTL_SUBJ; i <= TTL_GRPH; i++) {
+		for (size_t i = TTL_SUBJ; i <= (j ? TTL_OBJ : TTL_GRPH); i++) {
 			tot += termlen(pp->s[j].quad[i]);
 		}
 	}
@@ -815,7 +869,7 @@ _sbrkmv(struct _parser_s *pp)
 		for (size_t i = 0; i < pp->t[pp->S] - STATE_G; i++) {
 			tot += termlen(pp->s[pp->S].quad[i]);
 		}
-	} else {
+	} else if (pp->t[pp->S] < STATE_C0) {
 		for (size_t i = 0; i <= pp->t[pp->S] - STATE_BS; i++) {
 			tot += termlen(pp->s[pp->S].quad[i]);
 		}
@@ -827,7 +881,7 @@ _sbrkmv(struct _parser_s *pp)
 	}
 
 	for (size_t j = tot = 0U; j < pp->S; j++) {
-		for (size_t i = TTL_SUBJ; i <= TTL_GRPH; i++) {
+		for (size_t i = TTL_SUBJ; i <= (j ? TTL_OBJ : TTL_GRPH); i++) {
 			tot += termcpy(pp->x.b + tot, &pp->s[j].quad[i]);
 		}
 	}
@@ -840,11 +894,16 @@ _sbrkmv(struct _parser_s *pp)
 		for (size_t i = 0; i < pp->t[pp->S] - STATE_G; i++) {
 			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].quad[i]);
 		}
-	} else {
+	} else if (pp->t[pp->S] < STATE_C0) {
 		for (size_t i = 0; i <= pp->t[pp->S] - STATE_BS; i++) {
 			tot += termcpy(pp->x.b + tot, &pp->s[pp->S].quad[i]);
 		}
 	}
+	/* hand the saved graph on to the upper frames */
+	for (size_t j = 1U; j <= pp->S; j++) {
+		pp->s[j].quad[TTL_GRPH] = pp->s[0U].quad[TTL_GRPH];
+	}
+	free(old);
 	return tot;
 }
 
@@ -871,6 +930,66 @@ _append(struct _parser_s *pp, const char *str, size_t len)
 }
 
 
+static ttl_term_t
+_bnod(struct _parser_s *pp)
+{
+	return (ttl_term_t){TTL_TYP_BLA, .bla = {{~pp->S << 32U ^ pp->b++}}};
+}
+
+static void
+_push(struct _parser_s *pp, ttl_term_t subj, state_t st)
+{
+/* push a new frame about SUBJ, the graph is inherited */
+	const ttl_term_t grph = pp->s[pp->S].quad[TTL_GRPH];
+
+	if (UNLIKELY(++pp->S >= pp->Z)) {
+		pp->Z *= 2U;
+		pp->t = realloc(pp->t, pp->Z * sizeof(*pp->t));
+		pp->s = realloc(pp->s, pp->Z * sizeof(*pp->s));
+	}
+	pp->s[pp->S].quad[TTL_SUBJ] = subj;
+	/* _sbrkmv() looks at all terms of the frames below the top one */
+	pp->s[pp->S].quad[TTL_PRED] = (ttl_term_t){TTL_TYP_UNK};
+	pp->s[pp->S].quad[TTL_OBJ] = (ttl_term_t){TTL_TYP_UNK};
+	pp->s[pp->S].quad[TTL_GRPH] = grph;
+	pp->t[pp->S] = st;
+	return;
+}
+
+static void
+_emit(struct _parser_s *pp)
+{
+	if (pp->public.hdl.stmt) {
+		pp->public.hdl.stmt(pp->public.usr, pp->s, pp->S);
+	}
+	return;
+}
+
+static void
+_coll(struct _parser_s *pp, ttl_term_t item)
+{
+/* ITEM is the next element of the collection in the top frame, whose
+ * subject is the current list cell, this emits
+ *   [cell rdf:rest next .]  (unless this is the first item)
+ *   next rdf:first item . */
+	ttl_stmt_t *const s = pp->s + pp->S;
+
+	if (pp->t[pp->S] == STATE_C1) {
+		const ttl_term_t next = _bnod(pp);
+
+		s->quad[TTL_PRED] = rdf_rest;
+		s->quad[TTL_OBJ] = next;
+		_emit(pp);
+		s->quad[TTL_SUBJ] = next;
+	}
+	s->quad[TTL_PRED] = rdf_first;
+	s->quad[TTL_OBJ] = item;
+	_emit(pp);
+	pp->t[pp->S] = STATE_C1;
+	return;
+}
+
+
 ttl_parser_t*
 ttl_make_parser(void)
 {
@@ -915,6 +1034,8 @@ ttl_parse_chunk(ttl_parser_t *p, const char *buf, size_t len)
 	/* pointer after one transition */
 	const char *tp;
 	ttl_term_t tt;
+	/* head cell of a new bnode or collection */
+	ttl_term_t nb;
 
 rfll:
 	if (pp->p.n) {
@@ -996,6 +1117,11 @@ more:
 		bang_iri:
 			pp->s[pp->S].quad[pp->t[pp->S]++ - b] = tt;
 			break;
+		case STATE_C0:
+		case STATE_C1:
+			/* C* + IRI -> C1 */
+			_coll(pp, tt);
+			break;
 		default:
 			goto err;
 		}
@@ -1010,6 +1136,11 @@ more:
 			/* BP + LIT -> BO */
 			pp->s[pp->S].quad[TTL_OBJ] = tt;
 			pp->t[pp->S]++;
+			break;
+		case STATE_C0:
+		case STATE_C1:
+			/* C* + LIT -> C1 */
+			_coll(pp, tt);
 			break;
 		default:
 			goto err;
@@ -1043,27 +1174,73 @@ more:
 	case TRANS_SQO:
 		switch (pp->t[pp->S]) {
 		case STATE_P:
-			/* P + [ -> BS */
+			/* P + [ -> O + BS */
 		case STATE_GP:
-			/* GP + [ -> BS */
+			/* GP + [ -> GO + BS */
 		case STATE_BP:
-			/* BP + [ -> BS */
-			pp->s[pp->S].quad[TTL_OBJ] =
-				(ttl_term_t){TTL_TYP_BLA, .bla = {{~pp->S << 32U ^ pp->b++}}};
+			/* BP + [ -> BO + BS */
+			nb = _bnod(pp);
+			pp->s[pp->S].quad[TTL_OBJ] = nb;
 			pp->t[pp->S]++;
-			/* push */
-			if (UNLIKELY(++pp->S >= pp->Z)) {
-				pp->Z *= 2U;
-				pp->t = realloc(pp->t, pp->Z * sizeof(*pp->t));
-				pp->s = realloc(pp->s, pp->Z * sizeof(*pp->s));
-			}
-			pp->s[pp->S].quad[TTL_SUBJ] =
-				pp->s[pp->S - 1U].quad[TTL_OBJ];
-			pp->s[pp->S].quad[TTL_GRPH] =
-				pp->s[pp->S - 1U].quad[TTL_GRPH];
-			pp->t[pp->S] = STATE_BS;
+			break;
+		case STATE_C0:
+		case STATE_C1:
+			/* C* + [ -> C1 + BS */
+			nb = _bnod(pp);
+			_coll(pp, nb);
 			break;
 		default:
+			goto err;
+		}
+		/* push */
+		_push(pp, nb, STATE_BS);
+		break;
+	case TRANS_PAO:
+		switch (pp->t[pp->S]) {
+		case STATE_0:
+			/* 0 + ( -> S + C0 */
+		case STATE_G:
+			/* G + ( -> GS + C0 */
+			nb = _bnod(pp);
+			pp->s[pp->S].quad[TTL_SUBJ] = nb;
+			/* keep _sbrkmv() away from stale terms */
+			pp->s[pp->S].quad[TTL_PRED] = (ttl_term_t){TTL_TYP_UNK};
+			pp->s[pp->S].quad[TTL_OBJ] = (ttl_term_t){TTL_TYP_UNK};
+			pp->t[pp->S]++;
+			break;
+		case STATE_P:
+			/* P + ( -> O + C0 */
+		case STATE_GP:
+			/* GP + ( -> GO + C0 */
+		case STATE_BP:
+			/* BP + ( -> BO + C0 */
+			nb = _bnod(pp);
+			pp->s[pp->S].quad[TTL_OBJ] = nb;
+			pp->t[pp->S]++;
+			break;
+		case STATE_C0:
+		case STATE_C1:
+			/* C* + ( -> C1 + C0 */
+			nb = _bnod(pp);
+			_coll(pp, nb);
+			break;
+		default:
+			goto err;
+		}
+		/* push, nb is the first cell of the list */
+		_push(pp, nb, STATE_C0);
+		break;
+	case TRANS_PAC:
+		switch (pp->t[pp->S]) {
+		case STATE_C1:
+			/* C1 + ) -> pop, terminate the list */
+			pp->s[pp->S].quad[TTL_PRED] = rdf_rest;
+			pp->s[pp->S].quad[TTL_OBJ] = rdf_nil;
+			_emit(pp);
+			pp->S--;
+			break;
+		default:
+			/* includes C0, empty lists never make it here */
 			goto err;
 		}
 		break;
