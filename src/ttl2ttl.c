@@ -110,6 +110,21 @@ static char *_sring[countof(_hring)], **sring = _sring;
 static size_t _nring[countof(_hring)], *nring = _nring;
 static size_t _zring[countof(_hring)], *zring = _zring;
 
+/* rdf:list detection for diverted blank nodes */
+#define RDF_NS "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+enum {
+	LST_FIRST = 1U,
+	LST_RESTN = 2U,	/* rest is rdf:nil */
+	LST_RESTL = 4U,	/* rest is an inlined proper list */
+	LST_BAD   = 8U,	/* anything else, duplicates etc. */
+};
+struct lst_s {
+	unsigned int flags;
+	size_t fb, fe;	/* extent of the rdf:first object text */
+	size_t rb, re;	/* extent of the rdf:rest object text */
+};
+static struct lst_s _lring[countof(_hring)], *lring = _lring;
+
 #define FREE_RING(x)				\
 	if (x != _##x) free(x)
 
@@ -196,6 +211,7 @@ ring_put(const uint64_t h)
 	char **nusring;
 	size_t *nunring;
 	size_t *nuzring;
+	struct lst_s *nulring;
 	size_t nuringz = ringz;
 	size_t i, n;
 
@@ -214,6 +230,7 @@ rekey:
 	nusring = calloc(nuringz, sizeof(*nusring));
 	nuzring = calloc(nuringz, sizeof(*nuzring));
 	nunring = calloc(nuringz, sizeof(*nunring));
+	nulring = calloc(nuringz, sizeof(*nulring));
 
 	/* rekey */
 	for (i = stdi+1U; i < ringz; i++) {
@@ -231,21 +248,25 @@ rekey:
 			free(nusring);
 			free(nuzring);
 			free(nunring);
+			free(nulring);
 			goto rekey;
 		}
 		nuhring[j] = g;
 		nusring[j] = sring[i];
 		nuzring[j] = zring[i];
 		nunring[j] = nring[i];
+		nulring[j] = lring[i];
 	}
 	FREE_RING(hring);
 	FREE_RING(sring);
 	FREE_RING(zring);
 	FREE_RING(nring);
+	FREE_RING(lring);
 	hring = nuhring;
 	sring = nusring;
 	zring = nuzring;
 	nring = nunring;
+	lring = nulring;
 	ringz = nuringz;
 	goto reput;
 }
@@ -288,6 +309,7 @@ ring_put(uint64_t h)
 	REALLOC_RING(sring);
 	REALLOC_RING(zring);
 	REALLOC_RING(nring);
+	REALLOC_RING(lring);
 	/* slot at ringz/2U must be free */
 	hring[ringz / 2U] = h;
 	return ringz / 2U;
@@ -299,6 +321,7 @@ ring_rem(strhdl_t k)
 {
 	hring[k] = 0U;
 	nring[k] = 0U;
+	lring[k] = (struct lst_s){0U};
 	return;
 }
 
@@ -725,19 +748,63 @@ flush:
 	return;
 }
 
-static void
+static bool
+rdfp(struct _writer_s *w, ttl_term_t t, const char *l, size_t z)
+{
+	static const char ns[] = RDF_NS;
+	char buf[sizeof(ns) + 8U];
+	ttl_iri_t i2;
+
+	memcpy(buf, ns, sizeof(ns) - 1U);
+	memcpy(buf + sizeof(ns) - 1U, l, z);
+	i2 = (ttl_iri_t){.val = {buf, sizeof(ns) - 1U + z}};
+	return t.typ == TTL_TYP_IRI && irieqp(w, t.iri, i2);
+}
+
+static unsigned int
 swrite_term_or_ring(struct _writer_s *w, ttl_term_t t, strhdl_t stri)
 {
+/* return 1 if a proper rdf:list was inlined as ( ... ) */
 	ttl_term_t s;
+	unsigned int res = 0U;
 
 	switch ((s = try_cast(t)).typ) {
 		strhdl_t strk;
 
 	case TTL_TYP_BLA:
 		if ((strk = ring_get(s.bla.h[0U])) != (strhdl_t)-1) {
+			const struct lst_s *l = lring + strk;
+
+			if ((l->flags & LST_FIRST) &&
+			    (l->flags & (LST_RESTN | LST_RESTL)) &&
+			    !(l->flags & LST_BAD)) {
+				/* proper list cell, emit as ( x y z ) */
+				const char *sp = sring[strk];
+
+				salloc(stri, 2U * nring[strk] + 8U);
+				sput_('(', stri);
+				sput_(' ', stri);
+				swrit(sp + l->fb, l->fe - l->fb, stri);
+				if (l->flags & LST_RESTL) {
+					/* strip "( " and " )" off the tail */
+					sput_(' ', stri);
+					swrit(sp + l->rb + 2U,
+					       l->re - l->rb - 4U, stri);
+				}
+				sput_(' ', stri);
+				sput_(')', stri);
+				ring_rem(strk);
+				res = 1U;
+				break;
+			}
 			sputc(0x02, strk);
 			sputc(']', strk);
 			salloc(stri, 2U*nring[strk]);
+			/* copy and expand 0x02 into 0x02 + tab,
+			 * assumes enough space, 0x02 is our marker
+			 * for tabs, each possibly recursive
+			 * inclusion, takes a 0x02 and turns it into a
+			 * tab and 0x02 */
 			for (const char *sp = sring[strk],
 				     *const ep = sp + nring[strk]; sp < ep; sp++) {
 				sput_(*sp, stri);
@@ -753,6 +820,43 @@ swrite_term_or_ring(struct _writer_s *w, ttl_term_t t, strhdl_t stri)
 		break;
 	}
 	sflsh(stri);
+	return res;
+}
+
+static void
+swrite_obj_tracked(struct _writer_s *w, const ttl_stmt_t *st)
+{
+/* write object and, when in a diverted blank, note rdf:first/rest extents */
+	const strhdl_t k = w->stri;
+	const size_t b = nring[k];
+	unsigned int islist = swrite_term_or_ring(w, st->obj, k);
+	struct lst_s *l = lring + k;
+	static const ttl_iri_t nil = {
+		.val = {RDF_NS "nil", sizeof(RDF_NS "nil") - 1U}
+	};
+
+	if (k == stdi) {
+		return;
+	}
+	if (rdfp(w, st->pred, "first", 5U)) {
+		l->flags |= (l->flags & LST_FIRST) ? LST_BAD : 0U;
+		l->flags |= LST_FIRST;
+		l->fb = b, l->fe = nring[k];
+	} else if (rdfp(w, st->pred, "rest", 4U)) {
+		if (l->flags & (LST_RESTN | LST_RESTL)) {
+			l->flags |= LST_BAD;
+		} else if (islist) {
+			l->flags |= LST_RESTL;
+		} else if (st->obj.typ == TTL_TYP_IRI &&
+			   irieqp(w, st->obj.iri, nil)) {
+			l->flags |= LST_RESTN;
+		} else {
+			l->flags |= LST_BAD;
+		}
+		l->rb = b, l->re = nring[k];
+	} else {
+		l->flags |= LST_BAD;
+	}
 	return;
 }
 
@@ -795,7 +899,7 @@ stmt_y(void *usr, const ttl_stmt_t *stmt, size_t where)
 		sputc('\t', w->stri);
 		swrite_term(w, stmt[where].pred, w->stri);
 		sputc('\t', w->stri);
-		swrite_term_or_ring(w, stmt[where].obj, w->stri);
+		swrite_obj_tracked(w, &stmt[where]);
 		sputc(' ', w->stri);
 		last[TTL_SUBJ] = clon(w, stmt[where].subj, TTL_SUBJ);
 		last[TTL_PRED] = (ttl_term_t){};
@@ -805,13 +909,13 @@ stmt_y(void *usr, const ttl_stmt_t *stmt, size_t where)
 		sputc('\t', w->stri);
 		swrite_term(w, stmt[where].pred, w->stri);
 		sputc('\t', w->stri);
-		swrite_term_or_ring(w, stmt[where].obj, w->stri);
+		swrite_obj_tracked(w, &stmt[where]);
 		sputc(' ', w->stri);
 		last[TTL_PRED] = clon(w, stmt[where].pred, TTL_PRED);
 	} else {
 		sputc(',', w->stri);
 		sputc(' ', w->stri);
-		swrite_term_or_ring(w, stmt[where].obj, w->stri);
+		swrite_obj_tracked(w, &stmt[where]);
 		sputc(' ', w->stri);
 	}
 	sflsh(stdi);
@@ -957,6 +1061,7 @@ Error: cannot parse `%s'", fn);
 	FREE_RING(sring);
 	FREE_RING(zring);
 	FREE_RING(nring);
+	FREE_RING(lring);
 
 out:
 	ttl_free_parser(p);
